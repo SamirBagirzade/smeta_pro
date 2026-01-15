@@ -8,6 +8,8 @@ A comprehensive desktop application for managing product catalogs and generating
 - **Product Management**: Full CRUD operations (Create, Read, Update, Delete) for products
 - **MongoDB Backend**: Reliable NoSQL database with text search indexing
 - **Advanced Search**: Full-text search with special character support
+- **Image Upload**: Optional image attachment for each product with GridFS storage
+- **Image Viewer**: Double-click any product to view its image in a full-screen viewer
 - **Price Tracking**: Automatic tracking of price changes with color-coded age indicators
   - 🟢 Green: < 90 days
   - 🟡 Yellow: 90-180 days
@@ -96,7 +98,24 @@ The application automatically creates:
 - **Qeyd**: Notes/description
 - **Ölçü vahidi**: Unit of measurement
 - **Category**: Product category
+- **Şəkil**: Product image (optional)
 - **Price last changed**: Days since last price update (auto-tracked)
+
+### Working with Images
+
+**Uploading Images:**
+1. When adding or editing a product, click the "📷 Şəkil Yüklə" button
+2. Select an image file (PNG, JPG, JPEG, BMP, or GIF)
+3. The image is stored in MongoDB using GridFS
+
+**Viewing Images:**
+- Double-click any product row in the table to view its image
+- If no image exists, you'll be prompted to add one via the edit dialog
+- Images are displayed in a scalable viewer with scroll support
+
+**Removing Images:**
+- Edit the product and click "🗑️ Şəkli Sil" to remove the image
+- The image is permanently deleted from GridFS
 
 ### Creating Bills of Quantities
 
@@ -131,9 +150,16 @@ Products are stored as MongoDB documents with the following structure:
   "qeyd": "Description",
   "olcu_vahidi": "m",
   "category": "Category",
-  "price_last_changed": ISODate("2026-01-15T10:30:00Z")
+  "price_last_changed": ISODate("2026-01-15T10:30:00Z"),
+  "image_id": ObjectId("...")  // Optional - reference to GridFS file
 }
 ```
+
+**Image Storage:**
+- Images are stored using MongoDB GridFS for efficient binary file handling
+- GridFS automatically chunks large files (>16MB)
+- Each image is referenced by its ObjectId in the product document
+- Supported formats: PNG, JPG, JPEG, BMP, GIF
 
 ### BoQ File Format
 
@@ -157,12 +183,21 @@ BoQs are saved as JSON files:
 ```
 
 ### Technologies Used
-- **PyQt6**: Modern GUI framework
-- **pymongo**: MongoDB driver for Python
+- **PyQt6**: Modern GUI framework with image display support
+- **pymongo**: MongoDB driver for Python with GridFS support
+- **GridFS**: MongoDB's specification for storing large binary files
 - **openpyxl**: Excel file creation and manipulation
-- **MongoDB**: NoSQL database with text search capabilities
+- **MongoDB**: NoSQL database with text search and binary storage capabilities
 
 ## Special Features
+
+### GridFS Image Storage
+Images are stored efficiently using MongoDB's GridFS:
+- **Binary Storage**: Images stored as binary data in GridFS collections
+- **Automatic Cleanup**: Old images are deleted when replaced or product is deleted
+- **Scalable**: Supports images of any size (GridFS handles chunking)
+- **Format Support**: PNG, JPG, JPEG, BMP, GIF
+- **Interactive Viewer**: Double-click any product to view full-resolution image
 
 ### URL Encoding for Passwords
 Passwords with special characters (e.g., `@`, `#`, `%`) are automatically URL-encoded to ensure proper MongoDB connection strings.

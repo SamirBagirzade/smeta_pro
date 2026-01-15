@@ -9,6 +9,10 @@ Database Structure:
 - olcu_vahidi: string
 - category: string
 - price_last_changed: datetime (timestamp of last price change)
+- image_id: ObjectId (Optional, reference to GridFS file)
+
+Images are stored in GridFS for efficient binary storage.
+Double-click any product row to view its image.
 """
 
 import sys
@@ -19,14 +23,15 @@ from datetime import datetime, timezone
 from urllib.parse import quote_plus
 from pymongo import MongoClient, ASCENDING, TEXT
 from bson.objectid import ObjectId
+import gridfs
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QTableWidget, QTableWidgetItem, QPushButton, QLineEdit, QLabel,
     QMessageBox, QDialog, QFormLayout, QDoubleSpinBox, QTextEdit,
-    QGroupBox, QHeaderView, QSpinBox
+    QGroupBox, QHeaderView, QSpinBox, QFileDialog, QScrollArea
 )
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QFont, QIcon, QPalette, QColor
+from PyQt6.QtCore import Qt, QTimer, QByteArray
+from PyQt6.QtGui import QFont, QIcon, QPalette, QColor, QPixmap
 
 
 class DatabaseManager:
@@ -52,6 +57,7 @@ class DatabaseManager:
         self.client = None
         self.db = None
         self.collection = None
+        self.fs = None  # GridFS for storing images
         self.connect()
         self.setup_indexes()
 
@@ -74,6 +80,7 @@ class DatabaseManager:
             )
             self.db = self.client[self.database]
             self.collection = self.db['products']
+            self.fs = gridfs.GridFS(self.db)  # Initialize GridFS for image storage
 
             # Test connection
             self.client.server_info()
@@ -100,7 +107,7 @@ class DatabaseManager:
         except Exception as e:
             print(f"Note: Could not create indexes: {e}")
 
-    def create_product(self, mehsulun_adi, price, mehsul_menbeyi, qeyd, olcu_vahidi, category):
+    def create_product(self, mehsulun_adi, price, mehsul_menbeyi, qeyd, olcu_vahidi, category, image_id=None):
         """Create a new product"""
         try:
             product = {
@@ -112,6 +119,8 @@ class DatabaseManager:
                 'category': category,
                 'price_last_changed': datetime.now(timezone.utc)
             }
+            if image_id:
+                product['image_id'] = image_id
             result = self.collection.insert_one(product)
             return str(result.inserted_id)
         except Exception as e:
@@ -142,7 +151,7 @@ class DatabaseManager:
         except Exception as e:
             raise Exception(f"Failed to read product: {e}")
 
-    def update_product(self, product_id, mehsulun_adi, price, mehsul_menbeyi, qeyd, olcu_vahidi, category):
+    def update_product(self, product_id, mehsulun_adi, price, mehsul_menbeyi, qeyd, olcu_vahidi, category, image_id=None):
         """Update an existing product"""
         try:
             # Handle both string and ObjectId
@@ -166,6 +175,20 @@ class DatabaseManager:
             # If price changed, update the timestamp
             if current_product and current_product.get('price') != price:
                 update_data['$set']['price_last_changed'] = datetime.now(timezone.utc)
+
+            # Handle image update
+            if image_id is not None:
+                # Delete old image if exists
+                if current_product and current_product.get('image_id'):
+                    try:
+                        self.fs.delete(current_product['image_id'])
+                    except:
+                        pass
+
+                if image_id:  # New image uploaded
+                    update_data['$set']['image_id'] = image_id
+                else:  # Image removed
+                    update_data['$unset'] = {'image_id': ''}
 
             result = self.collection.update_one({'_id': product_id}, update_data)
             return result.modified_count > 0 or result.matched_count > 0
@@ -221,6 +244,33 @@ class DatabaseManager:
             return True, f"MongoDB version: {info.get('version', 'Unknown')}"
         except Exception as e:
             return False, str(e)
+
+    def save_image(self, image_data, filename):
+        """Save image to GridFS and return the file ID"""
+        try:
+            file_id = self.fs.put(image_data, filename=filename)
+            return file_id
+        except Exception as e:
+            raise Exception(f"Failed to save image: {e}")
+
+    def get_image(self, file_id):
+        """Retrieve image from GridFS"""
+        try:
+            if isinstance(file_id, str):
+                file_id = ObjectId(file_id)
+            image_file = self.fs.get(file_id)
+            return image_file.read()
+        except Exception as e:
+            raise Exception(f"Failed to retrieve image: {e}")
+
+    def delete_image(self, file_id):
+        """Delete image from GridFS"""
+        try:
+            if isinstance(file_id, str):
+                file_id = ObjectId(file_id)
+            self.fs.delete(file_id)
+        except Exception as e:
+            raise Exception(f"Failed to delete image: {e}")
 
 
 class DatabaseConfigDialog(QDialog):
@@ -424,6 +474,68 @@ class DatabaseConfigDialog(QDialog):
         }
 
 
+class ImageViewerDialog(QDialog):
+    """Dialog for viewing product images"""
+
+    def __init__(self, parent=None, image_data=None, product_name=""):
+        super().__init__(parent)
+        self.image_data = image_data
+        self.product_name = product_name
+        self.init_ui()
+
+    def init_ui(self):
+        self.setWindowTitle(f"Şəkil: {self.product_name}")
+        self.setMinimumSize(600, 600)
+
+        layout = QVBoxLayout()
+
+        # Image label
+        self.image_label = QLabel()
+        self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.image_label.setStyleSheet("background-color: #f0f0f0; border: 2px solid #ccc;")
+
+        if self.image_data:
+            pixmap = QPixmap()
+            pixmap.loadFromData(self.image_data)
+
+            # Scale image to fit window while maintaining aspect ratio
+            scaled_pixmap = pixmap.scaled(
+                800, 800,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
+            )
+            self.image_label.setPixmap(scaled_pixmap)
+        else:
+            self.image_label.setText("Şəkil yoxdur")
+            self.image_label.setStyleSheet("color: #999; font-size: 16px;")
+
+        # Scroll area for large images
+        scroll_area = QScrollArea()
+        scroll_area.setWidget(self.image_label)
+        scroll_area.setWidgetResizable(True)
+        layout.addWidget(scroll_area)
+
+        # Close button
+        close_btn = QPushButton("❌ Bağla")
+        close_btn.clicked.connect(self.accept)
+        close_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                padding: 8px 16px;
+                border: none;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+        """)
+        layout.addWidget(close_btn)
+
+        self.setLayout(layout)
+
+
 class ProductDialog(QDialog):
     """Dialog for adding/editing products"""
 
@@ -432,6 +544,9 @@ class ProductDialog(QDialog):
         self.product = product
         self.mode = mode
         self.parent_window = parent
+        self.image_data = None  # Store uploaded image data
+        self.image_filename = None
+        self.remove_image = False  # Flag to indicate image removal
 
         # Timer for clearing status messages in dialog
         if self.mode == "add":
@@ -480,6 +595,48 @@ class ProductDialog(QDialog):
         self.note_input.setMaximumHeight(80)
         layout.addRow("Qeyd:", self.note_input)
 
+        # Image upload section
+        image_layout = QHBoxLayout()
+        self.upload_image_btn = QPushButton("📷 Şəkil Yüklə")
+        self.upload_image_btn.clicked.connect(self.upload_image)
+        self.upload_image_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #9C27B0;
+                color: white;
+                padding: 6px 12px;
+                border: none;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #7B1FA2;
+            }
+        """)
+        image_layout.addWidget(self.upload_image_btn)
+
+        self.image_status_label = QLabel("Şəkil yoxdur")
+        self.image_status_label.setStyleSheet("color: #666; font-style: italic;")
+        image_layout.addWidget(self.image_status_label)
+
+        self.remove_image_btn = QPushButton("🗑️ Şəkli Sil")
+        self.remove_image_btn.clicked.connect(self.remove_image_action)
+        self.remove_image_btn.setVisible(False)
+        self.remove_image_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #f44336;
+                color: white;
+                padding: 6px 12px;
+                border: none;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #d32f2f;
+            }
+        """)
+        image_layout.addWidget(self.remove_image_btn)
+
+        image_layout.addStretch()
+        layout.addRow("Şəkil:", image_layout)
+
         # Fill fields if editing
         if self.product:
             self.name_input.setText(self.product['mehsulun_adi'])
@@ -488,6 +645,12 @@ class ProductDialog(QDialog):
             self.source_input.setText(self.product.get('mehsul_menbeyi', '') or '')
             self.unit_input.setText(self.product.get('olcu_vahidi', '') or '')
             self.note_input.setText(self.product.get('qeyd', '') or '')
+
+            # Check if product has an image
+            if self.product.get('image_id'):
+                self.image_status_label.setText("✓ Şəkil mövcuddur")
+                self.image_status_label.setStyleSheet("color: #4CAF50; font-weight: bold;")
+                self.remove_image_btn.setVisible(True)
 
         # Status label (for add mode)
         if self.mode == "add":
@@ -543,9 +706,40 @@ class ProductDialog(QDialog):
 
         self.setLayout(layout)
 
+    def upload_image(self):
+        """Handle image upload"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Şəkil Seçin",
+            "",
+            "Images (*.png *.jpg *.jpeg *.bmp *.gif)"
+        )
+
+        if file_path:
+            try:
+                with open(file_path, 'rb') as f:
+                    self.image_data = f.read()
+                    self.image_filename = os.path.basename(file_path)
+
+                self.image_status_label.setText(f"✓ {self.image_filename}")
+                self.image_status_label.setStyleSheet("color: #4CAF50; font-weight: bold;")
+                self.remove_image_btn.setVisible(True)
+                self.remove_image = False
+            except Exception as e:
+                QMessageBox.critical(self, "Xəta", f"Şəkil yüklənə bilmədi: {e}")
+
+    def remove_image_action(self):
+        """Mark image for removal"""
+        self.image_data = None
+        self.image_filename = None
+        self.remove_image = True
+        self.image_status_label.setText("Şəkil yoxdur")
+        self.image_status_label.setStyleSheet("color: #666; font-style: italic;")
+        self.remove_image_btn.setVisible(False)
+
     def get_data(self):
         """Returns the form data"""
-        return {
+        data = {
             'mehsulun_adi': self.name_input.text().strip(),
             'category': self.category_input.text().strip() or None,
             'price': self.price_input.value() if self.price_input.value() > 0 else None,
@@ -553,6 +747,13 @@ class ProductDialog(QDialog):
             'qeyd': self.note_input.toPlainText().strip() or None,
             'olcu_vahidi': self.unit_input.text().strip() or None
         }
+
+        # Add image information
+        data['image_data'] = self.image_data
+        data['image_filename'] = self.image_filename
+        data['remove_image'] = self.remove_image
+
+        return data
 
     def save_and_continue(self):
         """Save product and clear form for adding another (add mode only)"""
@@ -565,13 +766,19 @@ class ProductDialog(QDialog):
         try:
             # Call parent window's database to create product
             if self.parent_window and self.parent_window.db:
+                # Handle image upload
+                image_id = None
+                if data['image_data']:
+                    image_id = self.parent_window.db.save_image(data['image_data'], data['image_filename'])
+
                 product_id = self.parent_window.db.create_product(
                     data['mehsulun_adi'],
                     data['price'],
                     data['mehsul_menbeyi'],
                     data['qeyd'],
                     data['olcu_vahidi'],
-                    data['category']
+                    data['category'],
+                    image_id=image_id
                 )
 
                 # Show success status in dialog
@@ -612,6 +819,14 @@ class ProductDialog(QDialog):
         self.source_input.clear()
         self.unit_input.clear()
         self.note_input.clear()
+
+        # Clear image data
+        self.image_data = None
+        self.image_filename = None
+        self.remove_image = False
+        self.image_status_label.setText("Şəkil yoxdur")
+        self.image_status_label.setStyleSheet("color: #666; font-style: italic;")
+        self.remove_image_btn.setVisible(False)
 
     def _clear_dialog_status(self):
         """Clear the status label in the dialog"""
@@ -1688,6 +1903,9 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)  # Ölçü Vahidi
         header.setSectionResizeMode(7, QHeaderView.ResizeMode.Stretch)  # Qeyd
 
+        # Connect double-click to view image
+        self.table.cellDoubleClicked.connect(self.view_product_image)
+
         main_layout.addWidget(self.table)
 
         # Info label
@@ -1997,6 +2215,16 @@ class MainWindow(QMainWindow):
             dialog = ProductDialog(self, product=product, mode="edit")
             if dialog.exec():
                 data = dialog.get_data()
+
+                # Handle image upload
+                image_id = None
+                if data['image_data']:
+                    # New image uploaded
+                    image_id = self.db.save_image(data['image_data'], data['image_filename'])
+                elif data['remove_image']:
+                    # Image removed
+                    image_id = ''  # Empty string signals removal
+
                 success = self.db.update_product(
                     product_id,
                     data['mehsulun_adi'],
@@ -2004,7 +2232,8 @@ class MainWindow(QMainWindow):
                     data['mehsul_menbeyi'],
                     data['qeyd'],
                     data['olcu_vahidi'],
-                    data['category']
+                    data['category'],
+                    image_id=image_id if image_id is not None else None
                 )
                 if success:
                     QMessageBox.information(self, "Uğurlu", "Məhsul uğurla yeniləndi!")
@@ -2071,6 +2300,40 @@ class MainWindow(QMainWindow):
                     QMessageBox.warning(self, "Xəbərdarlıq", "Heç bir məhsul silinə bilmədi!")
             except Exception as e:
                 QMessageBox.critical(self, "Xəta", f"Məhsul silinə bilmədi:\n{str(e)}")
+
+    def view_product_image(self, row, column):
+        """View product image when double-clicking on a row"""
+        if not self.db:
+            return
+
+        try:
+            # Get product ID from the clicked row
+            product_id = self.table.item(row, 0).text()
+            product_name = self.table.item(row, 1).text()
+
+            # Retrieve product data
+            product = self.db.read_product(product_id)
+
+            if not product:
+                QMessageBox.warning(self, "Xəbərdarlıq", "Məhsul tapılmadı!")
+                return
+
+            # Check if product has an image
+            if product.get('image_id'):
+                try:
+                    # Retrieve image from GridFS
+                    image_data = self.db.get_image(product['image_id'])
+
+                    # Show image viewer dialog
+                    viewer = ImageViewerDialog(self, image_data, product_name)
+                    viewer.exec()
+                except Exception as e:
+                    QMessageBox.warning(self, "Xəbərdarlıq", f"Şəkil yüklənə bilmədi: {e}")
+            else:
+                QMessageBox.information(self, "Məlumat", f"'{product_name}' üçün şəkil yoxdur.\n\nŞəkil əlavə etmək üçün məhsulu redaktə edin.")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Xəta", f"Şəkil göstərilə bilmədi:\n{str(e)}")
 
     def search_products(self):
         """Debounced search - waits for user to stop typing"""
