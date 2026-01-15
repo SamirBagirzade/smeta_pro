@@ -8,9 +8,12 @@ Database Structure:
 - qeyd: string
 - olcu_vahidi: string
 - category: string
+- price_last_changed: datetime (timestamp of last price change)
 """
 
 import sys
+from datetime import datetime, timezone
+from urllib.parse import quote_plus
 from pymongo import MongoClient, ASCENDING, TEXT
 from bson.objectid import ObjectId
 from PyQt6.QtWidgets import (
@@ -52,9 +55,12 @@ class DatabaseManager:
     def connect(self):
         """Create and maintain database connection"""
         try:
-            # Build connection string
+            # Build connection string with URL-encoded credentials
             if self.username and self.password:
-                connection_string = f"mongodb://{self.username}:{self.password}@{self.host}:{self.port}/{self.database}"
+                # URL-encode username and password to handle special characters
+                encoded_username = quote_plus(self.username)
+                encoded_password = quote_plus(self.password)
+                connection_string = f"mongodb://{encoded_username}:{encoded_password}@{self.host}:{self.port}/{self.database}"
             else:
                 connection_string = f"mongodb://{self.host}:{self.port}/"
 
@@ -100,7 +106,8 @@ class DatabaseManager:
                 'mehsul_menbeyi': mehsul_menbeyi,
                 'qeyd': qeyd,
                 'olcu_vahidi': olcu_vahidi,
-                'category': category
+                'category': category,
+                'price_last_changed': datetime.now(timezone.utc)
             }
             result = self.collection.insert_one(product)
             return str(result.inserted_id)
@@ -139,6 +146,9 @@ class DatabaseManager:
             if isinstance(product_id, str):
                 product_id = ObjectId(product_id)
 
+            # Get current product to check if price changed
+            current_product = self.collection.find_one({'_id': product_id})
+
             update_data = {
                 '$set': {
                     'mehsulun_adi': mehsulun_adi,
@@ -149,6 +159,10 @@ class DatabaseManager:
                     'category': category
                 }
             }
+
+            # If price changed, update the timestamp
+            if current_product and current_product.get('price') != price:
+                update_data['$set']['price_last_changed'] = datetime.now(timezone.utc)
 
             result = self.collection.update_one({'_id': product_id}, update_data)
             return result.modified_count > 0 or result.matched_count > 0
@@ -1329,9 +1343,9 @@ class MainWindow(QMainWindow):
 
         # Table
         self.table = QTableWidget()
-        self.table.setColumnCount(7)
+        self.table.setColumnCount(8)
         self.table.setHorizontalHeaderLabels([
-            "ID", "Məhsulun Adı", "Kateqoriya", "Qiymət (AZN)", "Məhsul Mənbəyi", "Ölçü Vahidi", "Qeyd"
+            "ID", "Məhsulun Adı", "Kateqoriya", "Qiymət (AZN)", "Qiymət Dəyişdi (Gün)", "Məhsul Mənbəyi", "Ölçü Vahidi", "Qeyd"
         ])
 
         # Table styling
@@ -1345,9 +1359,10 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)  # Məhsulun Adı
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # Kateqoriya
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)  # Qiymət
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)  # Məhsul Mənbəyi
-        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)  # Ölçü Vahidi
-        header.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)  # Qeyd
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)  # Qiymət Dəyişdi (Gün)
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)  # Məhsul Mənbəyi
+        header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)  # Ölçü Vahidi
+        header.setSectionResizeMode(7, QHeaderView.ResizeMode.Stretch)  # Qeyd
 
         main_layout.addWidget(self.table)
 
@@ -1589,13 +1604,39 @@ class MainWindow(QMainWindow):
             self.table.setItem(row_position, 3, QTableWidgetItem(
                 f"{float(product['price']):.2f}" if product.get('price') else "N/A"
             ))
-            self.table.setItem(row_position, 4, QTableWidgetItem(
+
+            # Calculate days since price last changed
+            price_last_changed = product.get('price_last_changed')
+            if price_last_changed:
+                # Handle both timezone-aware and naive datetime
+                if price_last_changed.tzinfo is None:
+                    price_last_changed = price_last_changed.replace(tzinfo=timezone.utc)
+
+                now = datetime.now(timezone.utc)
+                days_since_change = (now - price_last_changed).days
+
+                # Color code based on days
+                days_item = QTableWidgetItem(str(days_since_change))
+                if days_since_change > 365:
+                    days_item.setForeground(QColor(211, 47, 47))  # Red for over a year
+                elif days_since_change > 180:
+                    days_item.setForeground(QColor(255, 152, 0))  # Orange for over 6 months
+                elif days_since_change > 90:
+                    days_item.setForeground(QColor(255, 193, 7))  # Yellow for over 3 months
+                else:
+                    days_item.setForeground(QColor(76, 175, 80))  # Green for recent
+
+                self.table.setItem(row_position, 4, days_item)
+            else:
+                self.table.setItem(row_position, 4, QTableWidgetItem("N/A"))
+
+            self.table.setItem(row_position, 5, QTableWidgetItem(
                 product.get('mehsul_menbeyi', '') or 'N/A'
             ))
-            self.table.setItem(row_position, 5, QTableWidgetItem(
+            self.table.setItem(row_position, 6, QTableWidgetItem(
                 product.get('olcu_vahidi', '') or 'N/A'
             ))
-            self.table.setItem(row_position, 6, QTableWidgetItem(
+            self.table.setItem(row_position, 7, QTableWidgetItem(
                 product.get('qeyd', '') or 'N/A'
             ))
 
