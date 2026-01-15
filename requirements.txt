@@ -1,0 +1,16 @@
+# PyQt6 - GUI Framework
+PyQt6>=6.6.0
+
+# MongoDB Database Driver
+pymongo>=4.6.0
+
+# Excel Export
+openpyxl>=3.1.0
+
+# Standard library modules (included with Python, listed for reference)
+# - sys
+# - re
+# - json
+# - os
+# - datetime
+# - urllib.parse
