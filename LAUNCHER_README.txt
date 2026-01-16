@@ -3,21 +3,25 @@
 ═══════════════════════════════════════════════════════════════
 
 QUICK START:
-  Double-click "launcher.vbs" to start the application
+  Double-click "launcher.bat" to start the application
 
 WHAT IT DOES:
   ✓ Automatically downloads/updates the application from GitHub
   ✓ Installs all required dependencies
-  ✓ Starts the application silently (no console windows)
+  ✓ Starts the application
 
 FIRST TIME SETUP:
   1. Install Python 3.8 or higher from python.org
   2. Install Git from git-scm.com
-  3. Double-click launcher.vbs
+  3. Double-click launcher.bat
+  4. Wait for setup to complete (may take a few minutes first time)
 
-FILES:
-  launcher.vbs - Main launcher (double-click this!)
-  launcher.bat - Background update script (don't run directly)
+WHAT YOU'LL SEE:
+  - Checking requirements...
+  - Cloning/updating repository...
+  - Installing/updating dependencies...
+  - Starting Smeta Pro...
+  - (Console window will stay open, this is normal)
 
 REQUIREMENTS:
   - Python 3.8+
@@ -26,8 +30,9 @@ REQUIREMENTS:
   - MongoDB connection details (provided by admin)
 
 TROUBLESHOOTING:
-  - If nothing happens: Check that Python and Git are installed
-  - If application doesn't start: Run launcher.bat directly to see errors
+  - If you see "Git not found": Install Git from https://git-scm.com/
+  - If you see "Python not found": Install Python from https://python.org/
+  - If cloning fails: Check your internet connection
   - Contact your system administrator for MongoDB connection issues
 
 ═══════════════════════════════════════════════════════════════

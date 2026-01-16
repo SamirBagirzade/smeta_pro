@@ -11,18 +11,34 @@ set "VENV_DIR=.venv"
 set "REQ_FILE=requirements.txt"
 REM ====================
 
-where git >nul 2>&1 || (exit /b 1)
-where python >nul 2>&1 || (exit /b 1)
+echo Checking requirements...
+where git >nul 2>&1 || (
+  echo ERROR: Git not found! Please install Git from https://git-scm.com/
+  pause
+  exit /b 1
+)
+
+where python >nul 2>&1 || (
+  echo ERROR: Python not found! Please install Python from https://python.org/
+  pause
+  exit /b 1
+)
 
 if not exist "%REPO_DIR%\" (
-  git clone "%REPO_URL%" "%REPO_DIR%" >nul 2>&1 || exit /b 1
-) else (
-  pushd "%REPO_DIR%" || exit /b 1
-  git fetch --all >nul 2>&1 || (popd & exit /b 1)
-  if not "%BRANCH%"=="" (
-    git checkout "%BRANCH%" >nul 2>&1 || (popd & exit /b 1)
+  echo Cloning repository...
+  git clone "%REPO_URL%" "%REPO_DIR%" || (
+    echo ERROR: Failed to clone repository!
+    pause
+    exit /b 1
   )
-  git pull >nul 2>&1 || (popd & exit /b 1)
+) else (
+  echo Updating repository...
+  pushd "%REPO_DIR%" || exit /b 1
+  git fetch --all
+  if not "%BRANCH%"=="" (
+    git checkout "%BRANCH%"
+  )
+  git pull
   popd
 )
 
@@ -30,15 +46,27 @@ pushd "%REPO_DIR%" || exit /b 1
 
 if "%USE_VENV%"=="1" (
   if not exist "%VENV_DIR%\Scripts\python.exe" (
-    python -m venv "%VENV_DIR%" >nul 2>&1 || (popd & exit /b 1)
+    echo Creating virtual environment...
+    python -m venv "%VENV_DIR%" || (
+      popd
+      echo ERROR: Failed to create virtual environment!
+      pause
+      exit /b 1
+    )
   )
 
   if exist "%REQ_FILE%" (
-    "%VENV_DIR%\Scripts\python.exe" -m pip install --upgrade pip >nul 2>&1
-    "%VENV_DIR%\Scripts\python.exe" -m pip install -r "%REQ_FILE%" >nul 2>&1
+    echo Installing/updating dependencies...
+    "%VENV_DIR%\Scripts\python.exe" -m pip install --upgrade pip --quiet
+    "%VENV_DIR%\Scripts\python.exe" -m pip install -r "%REQ_FILE%" --quiet
   )
+
+  echo Starting Smeta Pro...
+  "%VENV_DIR%\Scripts\python.exe" "%PY_ENTRY%"
+) else (
+  echo Starting Smeta Pro...
+  python "%PY_ENTRY%"
 )
 
-REM Don't launch Python here - VBS will do it
 popd
 endlocal
