@@ -104,9 +104,10 @@ class DatabaseManager:
             self.collection.create_index([("mehsulun_adi", ASCENDING)])
             self.collection.create_index([("category", ASCENDING)])
 
-            print("MongoDB indexes created successfully for fast searching.")
-        except Exception as e:
-            print(f"Note: Could not create indexes: {e}")
+            # Indexes created successfully (silent for GUI app)
+        except Exception:
+            # Could not create indexes (silent for GUI app)
+            pass
 
     def create_product(self, mehsulun_adi, price, mehsul_menbeyi, qeyd, olcu_vahidi, category, image_id=None):
         """Create a new product"""
