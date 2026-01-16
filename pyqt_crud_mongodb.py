@@ -316,6 +316,20 @@ class DatabaseManager:
         except Exception as e:
             raise Exception(f"Failed to retrieve cloud BoQs: {e}")
 
+    def search_cloud_boqs(self, search_term):
+        """Search BoQs by name"""
+        try:
+            escaped_term = re.escape(search_term)
+            regex_pattern = {'$regex': escaped_term, '$options': 'i'}
+            boqs = list(self.boq_collection.find(
+                {'name': regex_pattern}
+            ).sort("updated_at", -1))
+            for boq in boqs:
+                boq['id'] = str(boq['_id'])
+            return boqs
+        except Exception as e:
+            raise Exception(f"Failed to search cloud BoQs: {e}")
+
     def load_boq_from_cloud(self, boq_id):
         """Load a specific BoQ from cloud"""
         try:
@@ -1813,7 +1827,7 @@ class BoQWindow(QMainWindow):
             dialog = QDialog(self)
             dialog.setWindowTitle("Buluddan BoQ Yüklə")
             dialog.setMinimumWidth(600)
-            dialog.setMinimumHeight(400)
+            dialog.setMinimumHeight(500)
 
             layout = QVBoxLayout()
 
@@ -1821,6 +1835,24 @@ class BoQWindow(QMainWindow):
             title = QLabel("Yükləmək üçün BoQ seçin:")
             title.setStyleSheet("font-size: 14px; font-weight: bold; padding: 10px;")
             layout.addWidget(title)
+
+            # Search input
+            search_layout = QHBoxLayout()
+            search_input = QLineEdit()
+            search_input.setPlaceholderText("🔍 BoQ adına görə axtar...")
+            search_input.setStyleSheet("""
+                QLineEdit {
+                    padding: 8px 12px;
+                    border: 2px solid #ddd;
+                    border-radius: 5px;
+                    font-size: 13px;
+                }
+                QLineEdit:focus {
+                    border-color: #2196F3;
+                }
+            """)
+            search_layout.addWidget(search_input)
+            layout.addLayout(search_layout)
 
             # List widget for BoQs
             from PyQt6.QtWidgets import QListWidget, QListWidgetItem
@@ -1843,29 +1875,55 @@ class BoQWindow(QMainWindow):
                 }
             """)
 
-            # Add BoQs to list
-            for boq in cloud_boqs:
+            # Store all BoQs for filtering
+            all_boqs = cloud_boqs
+
+            def format_boq_item(boq):
+                """Format BoQ data for display"""
                 item_count = len(boq.get('items', []))
                 updated_at = boq.get('updated_at', '')
                 if updated_at:
                     try:
                         # Convert UTC to local time
                         if updated_at.tzinfo is None:
-                            # If naive datetime, assume UTC
                             updated_at = updated_at.replace(tzinfo=timezone.utc)
-
-                        # Convert to local time
                         local_time = updated_at.astimezone()
                         updated_str = local_time.strftime('%Y-%m-%d %H:%M')
                     except:
                         updated_str = str(updated_at)
                 else:
                     updated_str = "Naməlum"
+                return f"{boq['name']} ({item_count} məhsul) - Son yenilənmə: {updated_str}"
 
-                item_text = f"{boq['name']} ({item_count} məhsul) - Son yenilənmə: {updated_str}"
-                list_item = QListWidgetItem(item_text)
-                list_item.setData(Qt.ItemDataRole.UserRole, boq['id'])  # Store BoQ ID
-                boq_list.addItem(list_item)
+            def populate_list(boqs):
+                """Populate the list with BoQs"""
+                boq_list.clear()
+                for boq in boqs:
+                    item_text = format_boq_item(boq)
+                    list_item = QListWidgetItem(item_text)
+                    list_item.setData(Qt.ItemDataRole.UserRole, boq['id'])
+                    boq_list.addItem(list_item)
+
+            def search_boqs():
+                """Search BoQs based on input"""
+                search_term = search_input.text().strip()
+                if not search_term:
+                    populate_list(all_boqs)
+                else:
+                    try:
+                        # Search from database
+                        filtered_boqs = self.db.search_cloud_boqs(search_term)
+                        populate_list(filtered_boqs)
+                    except:
+                        # Fallback to local filtering
+                        filtered_boqs = [b for b in all_boqs if search_term.lower() in b['name'].lower()]
+                        populate_list(filtered_boqs)
+
+            # Connect search input to search function
+            search_input.textChanged.connect(search_boqs)
+
+            # Initial population
+            populate_list(all_boqs)
 
             layout.addWidget(boq_list)
 
@@ -2762,16 +2820,30 @@ class MainWindow(QMainWindow):
         # Get selected rows
         selected_rows = self.table.selectionModel().selectedRows()
 
-        # Only show context menu if exactly one row is selected
-        if len(selected_rows) != 1:
+        if not selected_rows:
             return
 
         # Create context menu
         menu = QMenu(self)
 
-        # Add copy action
-        copy_action = menu.addAction("📋 Kopyala və Redaktə Et")
-        copy_action.triggered.connect(self.copy_product)
+        # Single selection actions
+        if len(selected_rows) == 1:
+            edit_action = menu.addAction("✏️ Redaktə Et")
+            edit_action.triggered.connect(self.edit_product)
+
+            copy_action = menu.addAction("📋 Kopyala və Redaktə Et")
+            copy_action.triggered.connect(self.copy_product)
+
+            menu.addSeparator()
+
+        # Multi-selection compatible actions
+        add_to_boq_action = menu.addAction(f"➕ BoQ-a Əlavə Et ({len(selected_rows)} məhsul)")
+        add_to_boq_action.triggered.connect(self.add_selected_to_boq)
+
+        menu.addSeparator()
+
+        delete_action = menu.addAction(f"🗑️ Sil ({len(selected_rows)} məhsul)")
+        delete_action.triggered.connect(self.delete_product)
 
         # Show menu at cursor position
         menu.exec(self.table.viewport().mapToGlobal(position))
@@ -2836,6 +2908,73 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Xəta", f"Məhsul kopyalanarkən xəta:\n{str(e)}")
 
+    def add_selected_to_boq(self):
+        """Add selected products to BoQ with sequential quantity dialogs"""
+        if not self.db:
+            QMessageBox.warning(self, "Xəta", "Verilənlər bazasına qoşulmayıbsınız!")
+            return
+
+        # Check if BoQ window exists
+        if not self.boq_window:
+            QMessageBox.warning(self, "Xəbərdarlıq", "BoQ pəncərəsi açılmayıb! Əvvəlcə 'BoQ yarat' düyməsini basın.")
+            return
+
+        # Get all selected rows
+        selected_rows = self.table.selectionModel().selectedRows()
+        if not selected_rows:
+            return
+
+        # Process each selected product
+        added_count = 0
+        for index in selected_rows:
+            row = index.row()
+            product_id = self.table.item(row, 0).text()
+
+            try:
+                # Load product from database
+                product = self.db.read_product(product_id)
+                if not product:
+                    QMessageBox.warning(self, "Xəta", f"Məhsul tapılmadı: {product_id}")
+                    continue
+
+                # Create a pre-filled item for the dialog
+                item = {
+                    'name': product['mehsulun_adi'],
+                    'quantity': 1,
+                    'unit': product.get('olcu_vahidi', ''),
+                    'unit_price': product.get('price', 0),
+                    'category': product.get('category', '')
+                }
+
+                # Show dialog for quantity input
+                dialog = BoQItemDialog(self, self.db, item=item, mode="edit")
+                dialog.setWindowTitle(f"BoQ-a Əlavə Et: {product['mehsulun_adi']}")
+
+                if dialog.exec():
+                    # Get the data from dialog
+                    data = dialog.get_data()
+                    data['id'] = self.boq_window.next_id
+                    self.boq_window.next_id += 1
+
+                    # Add to BoQ
+                    self.boq_window.boq_items.append(data)
+                    added_count += 1
+                else:
+                    # User cancelled, stop processing remaining items
+                    break
+
+            except Exception as e:
+                QMessageBox.critical(self, "Xəta", f"Məhsul əlavə edilərkən xəta:\n{str(e)}")
+                continue
+
+        # Refresh BoQ table and show success message
+        if added_count > 0:
+            self.boq_window.refresh_table()
+            if added_count == 1:
+                self.show_status(f"1 məhsul BoQ-a əlavə edildi", "#4CAF50")
+            else:
+                self.show_status(f"{added_count} məhsul BoQ-a əlavə edildi", "#4CAF50")
+
     def search_products(self):
         """Debounced search - waits for user to stop typing"""
         # Stop any existing timer
@@ -2896,140 +3035,6 @@ class MainWindow(QMainWindow):
             # Bring existing window to front
             self.boq_window.raise_()
             self.boq_window.activateWindow()
-
-    def add_selected_to_boq(self):
-        """Add selected product to BoQ with quantity dialog"""
-        if not self.db:
-            return
-
-        selected_row = self.table.currentRow()
-
-        if selected_row < 0:
-            QMessageBox.warning(self, "Xəbərdarlıq", "BoQ-ya əlavə etmək üçün məhsul seçin!")
-            return
-
-        # Get product ID from selected row
-        product_id = self.table.item(selected_row, 0).text()
-
-        try:
-            product = self.db.read_product(product_id)
-
-            if not product:
-                QMessageBox.critical(self, "Xəta", "Məhsul tapılmadı!")
-                return
-
-            # Create or show BoQ window first
-            self.open_boq_window()
-
-            # Create a simplified dialog for quantity only
-            dialog = QDialog(self)
-            dialog.setWindowTitle("BoQ-ya Əlavə Et")
-            dialog.setMinimumWidth(400)
-
-            layout = QFormLayout()
-
-            # Show product name (read-only)
-            name_label = QLabel(product['mehsulun_adi'])
-            name_label.setStyleSheet("font-weight: bold; color: #2196F3;")
-            layout.addRow("Məhsul:", name_label)
-
-            # Quantity input
-            quantity_input = QDoubleSpinBox()
-            quantity_input.setRange(0.01, 999999.99)
-            quantity_input.setDecimals(2)
-            quantity_input.setValue(1)
-            layout.addRow("Miqdar:", quantity_input)
-
-            # Show unit and price (read-only)
-            unit_label = QLabel(product.get('olcu_vahidi', '') or 'ədəd')
-            layout.addRow("Ölçü Vahidi:", unit_label)
-
-            price_label = QLabel(f"{float(product['price']):.2f} AZN" if product.get('price') else "0.00 AZN")
-            layout.addRow("Vahid Qiymət:", price_label)
-
-            # Total label
-            total_label = QLabel("0.00 AZN")
-            total_label.setStyleSheet("font-weight: bold; color: #4CAF50;")
-            layout.addRow("Cəmi:", total_label)
-
-            # Update total when quantity changes
-            def update_total():
-                qty = quantity_input.value()
-                price = float(product['price']) if product.get('price') else 0
-                total = qty * price
-                total_label.setText(f"{total:.2f} AZN")
-
-            quantity_input.valueChanged.connect(update_total)
-            update_total()  # Initial calculation
-
-            # Buttons
-            button_layout = QHBoxLayout()
-
-            add_btn = QPushButton("✅ Əlavə Et")
-            add_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #4CAF50;
-                    color: white;
-                    padding: 8px 16px;
-                    border: none;
-                    border-radius: 4px;
-                    font-weight: bold;
-                }
-                QPushButton:hover {
-                    background-color: #45a049;
-                }
-            """)
-
-            cancel_btn = QPushButton("❌ Ləğv Et")
-            cancel_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #f44336;
-                    color: white;
-                    padding: 8px 16px;
-                    border: none;
-                    border-radius: 4px;
-                    font-weight: bold;
-                }
-                QPushButton:hover {
-                    background-color: #da190b;
-                }
-            """)
-
-            button_layout.addWidget(add_btn)
-            button_layout.addWidget(cancel_btn)
-            layout.addRow(button_layout)
-
-            dialog.setLayout(layout)
-
-            add_btn.clicked.connect(dialog.accept)
-            cancel_btn.clicked.connect(dialog.reject)
-
-            if dialog.exec():
-                # Add to BoQ
-                data = {
-                    'product_id': product_id,
-                    'name': product['mehsulun_adi'],
-                    'category': product.get('category', '') or '',
-                    'quantity': quantity_input.value(),
-                    'unit': product.get('olcu_vahidi', '') or 'ədəd',
-                    'unit_price': float(product['price']) if product.get('price') else 0,
-                    'total': quantity_input.value() * (float(product['price']) if product.get('price') else 0),
-                    'source': product.get('mehsul_menbeyi', '') or '',
-                    'note': product.get('qeyd', '') or '',
-                    'is_custom': False,
-                    'id': self.boq_window.next_id
-                }
-                self.boq_window.next_id += 1
-                self.boq_window.boq_items.append(data)
-                self.boq_window.refresh_table()
-
-                self.show_status(
-                    f"✅ '{product['mehsulun_adi']}' BoQ-ya əlavə edildi",
-                    color="#4CAF50"
-                )
-
-        except Exception as e:
-            QMessageBox.critical(self, "Xəta", f"BoQ-ya əlavə edilə bilmədi:\n{str(e)}")
 
 
 def main():
