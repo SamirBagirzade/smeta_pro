@@ -1292,21 +1292,36 @@ class BoQWindow(QMainWindow):
             self.refresh_table()
 
     def delete_item(self):
-        """Delete selected item"""
-        selected_row = self.table.currentRow()
-        if selected_row < 0:
+        """Delete selected item(s)"""
+        # Get all selected rows
+        selected_rows = self.table.selectionModel().selectedRows()
+
+        if not selected_rows:
             QMessageBox.warning(self, "Xəbərdarlıq", "Silmək üçün qeyd seçin!")
             return
+
+        # Confirm deletion
+        if len(selected_rows) == 1:
+            message = "Bu qeydi silmək istədiyinizdən əminsiniz?"
+        else:
+            message = f"{len(selected_rows)} qeydi silmək istədiyinizdən əminsiniz?"
 
         reply = QMessageBox.question(
             self,
             "Təsdiq",
-            "Bu qeydi silmək istədiyinizdən əminsiniz?",
+            message,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
 
         if reply == QMessageBox.StandardButton.Yes:
-            del self.boq_items[selected_row]
+            # Get row indices and sort in descending order
+            # This allows us to delete from bottom to top without affecting other indices
+            rows_to_delete = sorted([index.row() for index in selected_rows], reverse=True)
+
+            # Delete items from the list
+            for row in rows_to_delete:
+                del self.boq_items[row]
+
             self.refresh_table()
 
     def refresh_table(self):
