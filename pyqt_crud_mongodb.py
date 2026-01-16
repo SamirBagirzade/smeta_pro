@@ -28,7 +28,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QTableWidget, QTableWidgetItem, QPushButton, QLineEdit, QLabel,
     QMessageBox, QDialog, QFormLayout, QDoubleSpinBox, QTextEdit,
-    QGroupBox, QHeaderView, QSpinBox, QFileDialog, QScrollArea
+    QGroupBox, QHeaderView, QSpinBox, QFileDialog, QScrollArea, QMenu
 )
 from PyQt6.QtCore import Qt, QTimer, QByteArray
 from PyQt6.QtGui import QFont, QIcon, QPalette, QColor, QPixmap
@@ -2321,6 +2321,10 @@ class MainWindow(QMainWindow):
         # Connect double-click to view image
         self.table.cellDoubleClicked.connect(self.view_product_image)
 
+        # Enable context menu
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self.show_context_menu)
+
         main_layout.addWidget(self.table)
 
         # Info label
@@ -2749,6 +2753,88 @@ class MainWindow(QMainWindow):
 
         except Exception as e:
             QMessageBox.critical(self, "Xəta", f"Şəkil göstərilə bilmədi:\n{str(e)}")
+
+    def show_context_menu(self, position):
+        """Show context menu on right-click"""
+        if not self.db:
+            return
+
+        # Get selected rows
+        selected_rows = self.table.selectionModel().selectedRows()
+
+        # Only show context menu if exactly one row is selected
+        if len(selected_rows) != 1:
+            return
+
+        # Create context menu
+        menu = QMenu(self)
+
+        # Add copy action
+        copy_action = menu.addAction("📋 Kopyala və Redaktə Et")
+        copy_action.triggered.connect(self.copy_product)
+
+        # Show menu at cursor position
+        menu.exec(self.table.viewport().mapToGlobal(position))
+
+    def copy_product(self):
+        """Copy selected product and open for editing"""
+        if not self.db:
+            return
+
+        selected_row = self.table.currentRow()
+        if selected_row < 0:
+            return
+
+        try:
+            # Get product ID and data
+            product_id = self.table.item(selected_row, 0).text()
+            product = self.db.read_product(product_id)
+
+            if not product:
+                QMessageBox.critical(self, "Xəta", "Məhsul tapılmadı!")
+                return
+
+            # Create a copy of the product (without _id and image_id)
+            product_copy = {
+                'mehsulun_adi': product['mehsulun_adi'] + " (kopya)",
+                'price': product.get('price'),
+                'mehsul_menbeyi': product.get('mehsul_menbeyi'),
+                'qeyd': product.get('qeyd'),
+                'olcu_vahidi': product.get('olcu_vahidi'),
+                'category': product.get('category')
+            }
+
+            # Open dialog in "add" mode with copied data
+            dialog = ProductDialog(self, product=product_copy, mode="add")
+            dialog.setWindowTitle("Məhsulu Kopyala")
+
+            if dialog.exec():
+                data = dialog.get_data()
+
+                # Handle image if copied
+                image_id = None
+                if data['image_data']:
+                    image_id = self.db.save_image(data['image_data'], data['image_filename'])
+
+                # Create new product
+                new_product_id = self.db.create_product(
+                    data['mehsulun_adi'],
+                    data['price'],
+                    data['mehsul_menbeyi'],
+                    data['qeyd'],
+                    data['olcu_vahidi'],
+                    data['category'],
+                    image_id=image_id
+                )
+
+                if new_product_id:
+                    QMessageBox.information(self, "Uğurlu", "Məhsul kopyalandı və əlavə edildi!")
+                    self.load_products()
+                else:
+                    QMessageBox.warning(self, "Xəbərdarlıq", "Məhsul kopyalana bilmədi!")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Xəta", f"Məhsul kopyalanarkən xəta:\n{str(e)}")
 
     def search_products(self):
         """Debounced search - waits for user to stop typing"""
