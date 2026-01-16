@@ -80,6 +80,7 @@ class DatabaseManager:
             )
             self.db = self.client[self.database]
             self.collection = self.db['products']
+            self.boq_collection = self.db['boqs']  # Collection for cloud BoQ storage
             self.fs = gridfs.GridFS(self.db)  # Initialize GridFS for image storage
 
             # Test connection
@@ -271,6 +272,72 @@ class DatabaseManager:
             self.fs.delete(file_id)
         except Exception as e:
             raise Exception(f"Failed to delete image: {e}")
+
+    # BoQ Cloud Storage Methods
+    def save_boq_to_cloud(self, boq_name, boq_items, next_id):
+        """Save BoQ to MongoDB cloud"""
+        try:
+            boq_data = {
+                'name': boq_name,
+                'items': boq_items,
+                'next_id': next_id,
+                'created_at': datetime.now(timezone.utc),
+                'updated_at': datetime.now(timezone.utc)
+            }
+
+            # Check if BoQ with same name exists
+            existing_boq = self.boq_collection.find_one({'name': boq_name})
+
+            if existing_boq:
+                # Update existing BoQ
+                boq_data['created_at'] = existing_boq.get('created_at', datetime.now(timezone.utc))
+                boq_data['updated_at'] = datetime.now(timezone.utc)
+                self.boq_collection.update_one(
+                    {'name': boq_name},
+                    {'$set': boq_data}
+                )
+                return str(existing_boq['_id']), False  # False = updated
+            else:
+                # Insert new BoQ
+                result = self.boq_collection.insert_one(boq_data)
+                return str(result.inserted_id), True  # True = created new
+
+        except Exception as e:
+            raise Exception(f"Failed to save BoQ to cloud: {e}")
+
+    def get_all_cloud_boqs(self):
+        """Get list of all BoQs from cloud"""
+        try:
+            boqs = list(self.boq_collection.find().sort("updated_at", -1))
+            for boq in boqs:
+                boq['id'] = str(boq['_id'])
+            return boqs
+        except Exception as e:
+            raise Exception(f"Failed to retrieve cloud BoQs: {e}")
+
+    def load_boq_from_cloud(self, boq_id):
+        """Load a specific BoQ from cloud"""
+        try:
+            if isinstance(boq_id, str):
+                boq_id = ObjectId(boq_id)
+
+            boq = self.boq_collection.find_one({'_id': boq_id})
+            if boq:
+                boq['id'] = str(boq['_id'])
+            return boq
+        except Exception as e:
+            raise Exception(f"Failed to load BoQ from cloud: {e}")
+
+    def delete_cloud_boq(self, boq_id):
+        """Delete a BoQ from cloud"""
+        try:
+            if isinstance(boq_id, str):
+                boq_id = ObjectId(boq_id)
+
+            result = self.boq_collection.delete_one({'_id': boq_id})
+            return result.deleted_count > 0
+        except Exception as e:
+            raise Exception(f"Failed to delete cloud BoQ: {e}")
 
 
 class DatabaseConfigDialog(QDialog):
@@ -1209,6 +1276,23 @@ class BoQWindow(QMainWindow):
             }
         """)
 
+        self.load_cloud_boq_btn = QPushButton("☁️ Buluddan Yüklə")
+        self.load_cloud_boq_btn.clicked.connect(self.load_from_cloud)
+        self.load_cloud_boq_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #00BCD4;
+                color: white;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 5px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #0097A7;
+            }
+        """)
+
         self.combine_boq_btn = QPushButton("🔗 BoQ-ları Birləşdir")
         self.combine_boq_btn.clicked.connect(self.combine_boqs_to_excel)
         self.combine_boq_btn.setStyleSheet("""
@@ -1231,6 +1315,7 @@ class BoQWindow(QMainWindow):
         button_layout.addWidget(self.delete_btn)
         button_layout.addWidget(self.save_boq_btn)
         button_layout.addWidget(self.load_boq_btn)
+        button_layout.addWidget(self.load_cloud_boq_btn)
         button_layout.addWidget(self.export_excel_btn)
         button_layout.addWidget(self.combine_boq_btn)
         button_layout.addStretch()
@@ -1512,14 +1597,80 @@ class BoQWindow(QMainWindow):
         self.boq_name = self.boq_name_input.text().strip() or "BoQ 1"
 
     def save_boq(self):
-        """Save BoQ to JSON file"""
+        """Save BoQ to JSON file with optional cloud save"""
         if not self.boq_items:
             QMessageBox.warning(self, "Xəbərdarlıq", "BoQ boşdur! Yadda saxlamaq üçün məhsul əlavə edin.")
             return
 
         try:
             import json
-            from PyQt6.QtWidgets import QFileDialog
+            from PyQt6.QtWidgets import QFileDialog, QCheckBox
+
+            # Create custom dialog with checkbox
+            dialog = QDialog(self)
+            dialog.setWindowTitle("BoQ-u Yadda Saxla")
+            dialog.setMinimumWidth(400)
+
+            layout = QVBoxLayout()
+
+            # Info label
+            info_label = QLabel("BoQ-u harada saxlamaq istəyirsiniz?")
+            layout.addWidget(info_label)
+
+            # Cloud save checkbox
+            cloud_checkbox = QCheckBox("☁️ Buludda da saxla (MongoDB)")
+            cloud_checkbox.setChecked(True)  # Default checked
+            cloud_checkbox.setStyleSheet("padding: 10px; font-size: 12px;")
+            layout.addWidget(cloud_checkbox)
+
+            # Buttons
+            button_layout = QHBoxLayout()
+            save_btn = QPushButton("💾 Yadda Saxla")
+            save_btn.setDefault(True)
+            cancel_btn = QPushButton("❌ Ləğv Et")
+
+            save_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #4CAF50;
+                    color: white;
+                    padding: 8px 16px;
+                    border: none;
+                    border-radius: 4px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #45a049;
+                }
+            """)
+
+            cancel_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #f44336;
+                    color: white;
+                    padding: 8px 16px;
+                    border: none;
+                    border-radius: 4px;
+                }
+                QPushButton:hover {
+                    background-color: #da190b;
+                }
+            """)
+
+            button_layout.addWidget(save_btn)
+            button_layout.addWidget(cancel_btn)
+            layout.addLayout(button_layout)
+
+            dialog.setLayout(layout)
+
+            # Connect buttons
+            save_btn.clicked.connect(dialog.accept)
+            cancel_btn.clicked.connect(dialog.reject)
+
+            # Show dialog
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return
+
+            save_to_cloud = cloud_checkbox.isChecked()
 
             # Ask user for file location
             default_name = f"{self.boq_name}.json" if self.boq_name else "BoQ.json"
@@ -1540,14 +1691,31 @@ class BoQWindow(QMainWindow):
                 'items': self.boq_items
             }
 
-            # Save to file
+            # Save to local file
             with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(save_data, f, ensure_ascii=False, indent=2)
+
+            success_message = f"BoQ lokal faylda yadda saxlanıldı:\n{file_path}"
+
+            # Save to cloud if checkbox is checked
+            if save_to_cloud and self.db:
+                try:
+                    _, is_new = self.db.save_boq_to_cloud(
+                        self.boq_name,
+                        self.boq_items,
+                        self.next_id
+                    )
+                    if is_new:
+                        success_message += "\n\n✅ Buludda da saxlanıldı (yeni)!"
+                    else:
+                        success_message += "\n\n✅ Buludda yeniləndi!"
+                except Exception as cloud_error:
+                    success_message += f"\n\n⚠️ Bulud saxlama xətası: {cloud_error}"
 
             QMessageBox.information(
                 self,
                 "Uğurlu",
-                f"BoQ uğurla yadda saxlanıldı!\n\n{file_path}"
+                success_message
             )
 
         except Exception as e:
@@ -1625,6 +1793,237 @@ class BoQWindow(QMainWindow):
 
         except Exception as e:
             QMessageBox.critical(self, "Xəta", f"BoQ yüklənərkən xəta:\n{str(e)}")
+
+    def load_from_cloud(self):
+        """Load BoQ from cloud (MongoDB)"""
+        if not self.db:
+            QMessageBox.warning(self, "Xəbərdarlıq", "Verilənlər bazasına qoşulun!")
+            return
+
+        try:
+            # Get all cloud BoQs
+            cloud_boqs = self.db.get_all_cloud_boqs()
+
+            if not cloud_boqs:
+                QMessageBox.information(self, "Məlumat", "Buludda heç bir BoQ tapılmadı!")
+                return
+
+            # Create selection dialog
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Buluddan BoQ Yüklə")
+            dialog.setMinimumWidth(600)
+            dialog.setMinimumHeight(400)
+
+            layout = QVBoxLayout()
+
+            # Title
+            title = QLabel("Yükləmək üçün BoQ seçin:")
+            title.setStyleSheet("font-size: 14px; font-weight: bold; padding: 10px;")
+            layout.addWidget(title)
+
+            # List widget for BoQs
+            from PyQt6.QtWidgets import QListWidget, QListWidgetItem
+            boq_list = QListWidget()
+            boq_list.setStyleSheet("""
+                QListWidget {
+                    font-size: 13px;
+                    padding: 5px;
+                }
+                QListWidget::item {
+                    padding: 10px;
+                    border-bottom: 1px solid #ddd;
+                }
+                QListWidget::item:hover {
+                    background-color: #e3f2fd;
+                }
+                QListWidget::item:selected {
+                    background-color: #2196F3;
+                    color: white;
+                }
+            """)
+
+            # Add BoQs to list
+            for boq in cloud_boqs:
+                item_count = len(boq.get('items', []))
+                updated_at = boq.get('updated_at', '')
+                if updated_at:
+                    try:
+                        # Convert UTC to local time
+                        if updated_at.tzinfo is None:
+                            # If naive datetime, assume UTC
+                            updated_at = updated_at.replace(tzinfo=timezone.utc)
+
+                        # Convert to local time
+                        local_time = updated_at.astimezone()
+                        updated_str = local_time.strftime('%Y-%m-%d %H:%M')
+                    except:
+                        updated_str = str(updated_at)
+                else:
+                    updated_str = "Naməlum"
+
+                item_text = f"{boq['name']} ({item_count} məhsul) - Son yenilənmə: {updated_str}"
+                list_item = QListWidgetItem(item_text)
+                list_item.setData(Qt.ItemDataRole.UserRole, boq['id'])  # Store BoQ ID
+                boq_list.addItem(list_item)
+
+            layout.addWidget(boq_list)
+
+            # Buttons
+            button_layout = QHBoxLayout()
+
+            load_btn = QPushButton("📥 Yüklə")
+            load_btn.setDefault(True)
+            delete_btn = QPushButton("🗑️ Sil")
+            cancel_btn = QPushButton("❌ Ləğv Et")
+
+            load_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #4CAF50;
+                    color: white;
+                    padding: 8px 16px;
+                    border: none;
+                    border-radius: 4px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #45a049;
+                }
+            """)
+
+            delete_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #f44336;
+                    color: white;
+                    padding: 8px 16px;
+                    border: none;
+                    border-radius: 4px;
+                }
+                QPushButton:hover {
+                    background-color: #da190b;
+                }
+            """)
+
+            cancel_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #9E9E9E;
+                    color: white;
+                    padding: 8px 16px;
+                    border: none;
+                    border-radius: 4px;
+                }
+                QPushButton:hover {
+                    background-color: #757575;
+                }
+            """)
+
+            button_layout.addWidget(load_btn)
+            button_layout.addWidget(delete_btn)
+            button_layout.addStretch()
+            button_layout.addWidget(cancel_btn)
+            layout.addLayout(button_layout)
+
+            dialog.setLayout(layout)
+
+            # Handle load button
+            def load_selected():
+                selected_items = boq_list.selectedItems()
+                if not selected_items:
+                    QMessageBox.warning(dialog, "Xəbərdarlıq", "BoQ seçin!")
+                    return
+
+                boq_id = selected_items[0].data(Qt.ItemDataRole.UserRole)
+
+                # Confirm if current BoQ will be replaced
+                if self.boq_items:
+                    reply = QMessageBox.question(
+                        dialog,
+                        "Təsdiq",
+                        "Mövcud BoQ məlumatları əvəz olunacaq. Davam etmək istəyirsiniz?",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                    )
+                    if reply != QMessageBox.StandardButton.Yes:
+                        return
+
+                # Load BoQ from cloud
+                boq_data = self.db.load_boq_from_cloud(boq_id)
+                if boq_data:
+                    self.boq_name = boq_data.get('name', 'BoQ 1')
+                    self.boq_name_input.setText(self.boq_name)
+                    self.next_id = boq_data.get('next_id', 1)
+                    loaded_items = boq_data.get('items', [])
+
+                    # Update prices from database for items that came from DB
+                    updated_count = 0
+                    for item in loaded_items:
+                        if not item.get('is_custom') and item.get('product_id') and self.db:
+                            try:
+                                product = self.db.read_product(item['product_id'])
+                                if product:
+                                    old_price = item['unit_price']
+                                    new_price = float(product['price']) if product.get('price') else 0
+
+                                    item['unit_price'] = new_price
+                                    item['total'] = item['quantity'] * new_price
+                                    item['category'] = product.get('category', '') or ''
+                                    item['source'] = product.get('mehsul_menbeyi', '') or ''
+                                    item['note'] = product.get('qeyd', '') or ''
+
+                                    if old_price != new_price:
+                                        updated_count += 1
+                            except:
+                                pass
+
+                    self.boq_items = loaded_items
+                    self.refresh_table()
+
+                    message = f"BoQ buluddan yükləndi!\n\n{len(loaded_items)} məhsul yükləndi."
+                    if updated_count > 0:
+                        message += f"\n{updated_count} məhsulun qiyməti yeniləndi."
+
+                    QMessageBox.information(self, "Uğurlu", message)
+                    dialog.accept()
+                else:
+                    QMessageBox.critical(dialog, "Xəta", "BoQ yüklənə bilmədi!")
+
+            # Handle delete button
+            def delete_selected():
+                selected_items = boq_list.selectedItems()
+                if not selected_items:
+                    QMessageBox.warning(dialog, "Xəbərdarlıq", "BoQ seçin!")
+                    return
+
+                boq_id = selected_items[0].data(Qt.ItemDataRole.UserRole)
+                boq_name = selected_items[0].text().split(' (')[0]
+
+                reply = QMessageBox.question(
+                    dialog,
+                    "Təsdiq",
+                    f"'{boq_name}' BoQ-nu buluddan silmək istədiyinizdən əminsiniz?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+
+                if reply == QMessageBox.StandardButton.Yes:
+                    if self.db.delete_cloud_boq(boq_id):
+                        boq_list.takeItem(boq_list.row(selected_items[0]))
+                        QMessageBox.information(dialog, "Uğurlu", "BoQ buluddan silindi!")
+
+                        if boq_list.count() == 0:
+                            QMessageBox.information(dialog, "Məlumat", "Buludda daha BoQ qalmadı.")
+                            dialog.accept()
+                    else:
+                        QMessageBox.critical(dialog, "Xəta", "BoQ silinə bilmədi!")
+
+            load_btn.clicked.connect(load_selected)
+            delete_btn.clicked.connect(delete_selected)
+            cancel_btn.clicked.connect(dialog.reject)
+
+            # Double click to load
+            boq_list.itemDoubleClicked.connect(load_selected)
+
+            dialog.exec()
+
+        except Exception as e:
+            QMessageBox.critical(self, "Xəta", f"Buluddan yükləmə xətası:\n{str(e)}")
 
     def combine_boqs_to_excel(self):
         """Combine multiple BoQs into a single Excel file"""
