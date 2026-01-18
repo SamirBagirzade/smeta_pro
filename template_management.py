@@ -377,6 +377,31 @@ class TemplateManagementWindow(QDialog):
                     self.boq_window.boq_items.append(new_item)
                     self.boq_window.next_id += 1
                     items_added += 1
+                else:
+                    currency = template_item.get('currency', 'AZN') or 'AZN'
+                    unit_price = template_item.get('default_price', 0)
+                    unit_price_azn = template_item.get('default_price_azn')
+                    if unit_price_azn is None:
+                        unit_price_azn = self.boq_window.currency_manager.convert_to_azn(unit_price, currency)
+                    new_item = {
+                        'id': self.boq_window.next_id,
+                        'name': template_item.get('generic_name', '') or template_item.get('name', ''),
+                        'quantity': 1,
+                        'unit': template_item.get('unit', 'ədəd'),
+                        'unit_price': unit_price,
+                        'currency': currency,
+                        'unit_price_azn': unit_price_azn,
+                        'total': float(unit_price_azn),
+                        'margin_percent': 0,
+                        'category': template_item.get('category', ''),
+                        'source': '',
+                        'note': f"Şablondan: {template_item.get('generic_name', '')}",
+                        'is_custom': True,
+                        'product_id': None
+                    }
+                    self.boq_window.boq_items.append(new_item)
+                    self.boq_window.next_id += 1
+                    items_added += 1
             else:
                 # DB-linked item - get current data from DB
                 product = self.db.read_product(template_item.get('product_id'))
