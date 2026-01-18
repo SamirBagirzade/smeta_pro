@@ -13,6 +13,7 @@ from PyQt6.QtGui import QFont, QShortcut, QKeySequence
 
 from dialogs import SmetaItemDialog
 from template_management import TemplateManagementWindow
+from currency_settings import CurrencySettingsManager
 
 
 class SmetaWindow(QMainWindow):
@@ -22,6 +23,7 @@ class SmetaWindow(QMainWindow):
         super().__init__(parent)
         self.parent_window = parent
         self.db = db
+        self.currency_manager = CurrencySettingsManager(self.db)
         self.boq_items = []  # List to store Smeta items
         self.next_id = 1
         self.boq_name = "Smeta 1"  # Default name
@@ -494,7 +496,17 @@ class SmetaWindow(QMainWindow):
 
             # Get margin percent (default 0)
             margin_pct = item.get('margin_percent', 0)
-            cost_total = item['total']
+            currency = item.get('currency', 'AZN') or 'AZN'
+            unit_price = item.get('unit_price', 0)
+            unit_price_azn = item.get('unit_price_azn')
+            if unit_price_azn is None:
+                unit_price_azn = self.currency_manager.convert_to_azn(unit_price, currency)
+                item['unit_price_azn'] = unit_price_azn
+
+            cost_total = item.get('total')
+            if cost_total is None:
+                cost_total = item.get('quantity', 0) * unit_price_azn
+                item['total'] = cost_total
             final_total = cost_total * (1 + margin_pct / 100)
 
             # Column 0: №
@@ -518,7 +530,7 @@ class SmetaWindow(QMainWindow):
             unit_item.setFlags(unit_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.table.setItem(row_position, 4, unit_item)
             # Column 5: Vahid Qiymət
-            price_item = QTableWidgetItem(f"{item['unit_price']:.2f}")
+            price_item = QTableWidgetItem(f"{unit_price:.2f} {currency} (AZN {unit_price_azn:.2f})")
             price_item.setFlags(price_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.table.setItem(row_position, 5, price_item)
             # Column 6: Cəmi (cost)
@@ -574,8 +586,13 @@ class SmetaWindow(QMainWindow):
 
             quantity = max(0.01, quantity)
             self.boq_items[row]['quantity'] = quantity
-            unit_price = self.boq_items[row].get('unit_price', 0)
-            total = quantity * unit_price
+            unit_price_azn = self.boq_items[row].get('unit_price_azn')
+            if unit_price_azn is None:
+                currency = self.boq_items[row].get('currency', 'AZN') or 'AZN'
+                unit_price = self.boq_items[row].get('unit_price', 0)
+                unit_price_azn = self.currency_manager.convert_to_azn(unit_price, currency)
+                self.boq_items[row]['unit_price_azn'] = unit_price_azn
+            total = quantity * unit_price_azn
             self.boq_items[row]['total'] = total
 
             margin_pct = self.boq_items[row].get('margin_percent', 0)
@@ -664,7 +681,10 @@ class SmetaWindow(QMainWindow):
                 self.boq_items.sort(key=lambda x: x.get('total', 0) * (1 + x.get('margin_percent', 0) / 100), reverse=reverse)
             elif key in ['quantity', 'unit_price', 'total', 'id', 'margin_percent']:
                 # Numeric sort
-                self.boq_items.sort(key=lambda x: float(x.get(key, 0) or 0), reverse=reverse)
+                if key == 'unit_price':
+                    self.boq_items.sort(key=lambda x: float(x.get('unit_price_azn', x.get('unit_price', 0)) or 0), reverse=reverse)
+                else:
+                    self.boq_items.sort(key=lambda x: float(x.get(key, 0) or 0), reverse=reverse)
             elif key == 'is_custom':
                 # Boolean sort
                 self.boq_items.sort(key=lambda x: x.get(key, False), reverse=reverse)
@@ -774,8 +794,12 @@ class SmetaWindow(QMainWindow):
                 ws.cell(row=row_num, column=4, value=item['quantity']).border = border
                 # Column 5: Ölçü Vahidi
                 ws.cell(row=row_num, column=5, value=item['unit']).border = border
-                # Column 6: Vahid Qiymət
-                ws.cell(row=row_num, column=6, value=item['unit_price']).border = border
+                # Column 6: Vahid Qiymət (AZN)
+                unit_price_azn = item.get('unit_price_azn')
+                if unit_price_azn is None:
+                    currency = item.get('currency', 'AZN') or 'AZN'
+                    unit_price_azn = self.currency_manager.convert_to_azn(item.get('unit_price', 0), currency)
+                ws.cell(row=row_num, column=6, value=unit_price_azn).border = border
                 # Column 7: Cəmi (cost)
                 ws.cell(row=row_num, column=7, value=f"=D{row_num}*F{row_num}").border = border
                 # Column 8: Marja %
@@ -1074,7 +1098,10 @@ class SmetaWindow(QMainWindow):
                             new_price = float(product['price']) if product.get('price') else 0
 
                             item['unit_price'] = new_price
-                            item['total'] = item['quantity'] * new_price
+                            currency = product.get('currency', 'AZN') or 'AZN'
+                            item['currency'] = currency
+                            item['unit_price_azn'] = product.get('price_azn', new_price)
+                            item['total'] = item['quantity'] * item['unit_price_azn']
                             item['category'] = product.get('category', '') or ''
                             item['source'] = product.get('mehsul_menbeyi', '') or ''
                             item['note'] = product.get('qeyd', '') or ''
@@ -1084,6 +1111,12 @@ class SmetaWindow(QMainWindow):
                     except Exception:
                         # If product not found or error, keep the saved data
                         pass
+                currency = item.get('currency', 'AZN') or 'AZN'
+                if 'unit_price_azn' not in item or item.get('unit_price_azn') is None:
+                    unit_price = item.get('unit_price', 0)
+                    item['unit_price_azn'] = self.currency_manager.convert_to_azn(unit_price, currency)
+                if 'total' not in item or item.get('total') is None:
+                    item['total'] = item.get('quantity', 0) * item.get('unit_price_azn', 0)
 
             self.boq_items = loaded_items
             self.refresh_table()
@@ -1310,7 +1343,10 @@ class SmetaWindow(QMainWindow):
                                     new_price = float(product['price']) if product.get('price') else 0
 
                                     item['unit_price'] = new_price
-                                    item['total'] = item['quantity'] * new_price
+                                    currency = product.get('currency', 'AZN') or 'AZN'
+                                    item['currency'] = currency
+                                    item['unit_price_azn'] = product.get('price_azn', new_price)
+                                    item['total'] = item['quantity'] * item['unit_price_azn']
                                     item['category'] = product.get('category', '') or ''
                                     item['source'] = product.get('mehsul_menbeyi', '') or ''
                                     item['note'] = product.get('qeyd', '') or ''
@@ -1319,6 +1355,12 @@ class SmetaWindow(QMainWindow):
                                         updated_count += 1
                             except Exception:
                                 pass
+                        currency = item.get('currency', 'AZN') or 'AZN'
+                        if 'unit_price_azn' not in item or item.get('unit_price_azn') is None:
+                            unit_price = item.get('unit_price', 0)
+                            item['unit_price_azn'] = self.currency_manager.convert_to_azn(unit_price, currency)
+                        if 'total' not in item or item.get('total') is None:
+                            item['total'] = item.get('quantity', 0) * item.get('unit_price_azn', 0)
 
                     self.boq_items = loaded_items
                     self.refresh_table()
@@ -1415,10 +1457,15 @@ class SmetaWindow(QMainWindow):
                 for item in boq['items']:
                     item_key = item['name']
                     if item_key not in all_items_dict:
+                        currency = item.get('currency', 'AZN') or 'AZN'
+                        unit_price = item.get('unit_price', 0)
+                        unit_price_azn = item.get('unit_price_azn')
+                        if unit_price_azn is None:
+                            unit_price_azn = self.currency_manager.convert_to_azn(unit_price, currency)
                         all_items_dict[item_key] = {
                             'name': item['name'],
                             'unit': item.get('unit', 'ədəd'),
-                            'unit_price': item.get('unit_price', 0),
+                            'unit_price': unit_price_azn,
                             'category': item.get('category', ''),
                             'source': item.get('source', ''),
                             'note': item.get('note', ''),

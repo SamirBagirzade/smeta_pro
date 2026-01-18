@@ -200,7 +200,13 @@ class TemplateManagementWindow(QDialog):
             self.items_table.setItem(row, 0, QTableWidgetItem(item.get('generic_name', item.get('name', ''))))
             self.items_table.setItem(row, 1, QTableWidgetItem(item.get('unit', '')))
             default_price = item.get('default_price', item.get('unit_price', 0))
-            self.items_table.setItem(row, 2, QTableWidgetItem(f"{default_price:.2f}"))
+            currency = item.get('currency', 'AZN') or 'AZN'
+            default_price_azn = item.get('default_price_azn')
+            if default_price_azn is None:
+                default_price_azn = default_price if currency == 'AZN' else 0
+            self.items_table.setItem(
+                row, 2, QTableWidgetItem(f"{default_price:.2f} {currency} (AZN {default_price_azn:.2f})")
+            )
 
             # Type: Generic or DB-linked
             item_type = "DB" if item.get('product_id') else "Generik"
@@ -301,6 +307,8 @@ class TemplateManagementWindow(QDialog):
                     'name': item.get('name', item.get('generic_name', '')),
                     'unit': item.get('unit', ''),
                     'default_price': item.get('default_price', 0),
+                    'currency': item.get('currency', 'AZN') or 'AZN',
+                    'default_price_azn': item.get('default_price_azn'),
                     'product_id': item.get('product_id'),
                     'category': item.get('category', ''),
                     'is_generic': not bool(item.get('product_id'))
@@ -353,13 +361,20 @@ class TemplateManagementWindow(QDialog):
                 # DB-linked item - get current data from DB
                 product = self.db.read_product(template_item.get('product_id'))
                 if product:
+                    currency = product.get('currency', 'AZN') or 'AZN'
+                    unit_price = float(product['price']) if product.get('price') else 0
+                    unit_price_azn = product.get('price_azn')
+                    if unit_price_azn is None:
+                        unit_price_azn = self.boq_window.currency_manager.convert_to_azn(unit_price, currency)
                     new_item = {
                         'id': self.boq_window.next_id,
                         'name': product['mehsulun_adi'],
                         'quantity': 1,
                         'unit': product.get('olcu_vahidi', '') or 'ədəd',
-                        'unit_price': float(product['price']) if product.get('price') else 0,
-                        'total': float(product['price']) if product.get('price') else 0,
+                        'unit_price': unit_price,
+                        'currency': currency,
+                        'unit_price_azn': unit_price_azn,
+                        'total': float(unit_price_azn),
                         'margin_percent': 0,
                         'category': product.get('category', ''),
                         'source': product.get('mehsul_menbeyi', ''),
@@ -389,13 +404,20 @@ class TemplateManagementWindow(QDialog):
 
     def create_boq_item_from_selection(self, template_item, product):
         """Create a Smeta item from template item and selected product"""
+        currency = product.get('currency', template_item.get('currency', 'AZN')) or 'AZN'
+        unit_price = float(product['price']) if product.get('price') else template_item.get('default_price', 0)
+        unit_price_azn = product.get('price_azn', template_item.get('default_price_azn'))
+        if unit_price_azn is None:
+            unit_price_azn = self.boq_window.currency_manager.convert_to_azn(unit_price, currency)
         return {
             'id': self.boq_window.next_id,
             'name': product['mehsulun_adi'],
             'quantity': 1,
             'unit': product.get('olcu_vahidi', '') or template_item.get('unit', 'ədəd'),
-            'unit_price': float(product['price']) if product.get('price') else template_item.get('default_price', 0),
-            'total': float(product['price']) if product.get('price') else template_item.get('default_price', 0),
+            'unit_price': unit_price,
+            'currency': currency,
+            'unit_price_azn': unit_price_azn,
+            'total': float(unit_price_azn),
             'margin_percent': 0,
             'category': product.get('category', ''),
             'source': product.get('mehsul_menbeyi', ''),

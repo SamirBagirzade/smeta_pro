@@ -18,6 +18,8 @@ from dialogs import (
 )
 from boq_window import SmetaWindow
 from project_window import ProjectWindow
+from settings_dialog import CurrencySettingsDialog
+from currency_settings import CurrencySettingsManager
 
 
 class MainWindow(QMainWindow):
@@ -28,6 +30,7 @@ class MainWindow(QMainWindow):
         self.db = None
         self.boq_window = None  # Single Smeta window instance
         self.project_window = None  # Single Project window instance
+        self.currency_manager = CurrencySettingsManager()
 
         # Create a timer for search debouncing
         self.search_timer = QTimer()
@@ -89,7 +92,7 @@ class MainWindow(QMainWindow):
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.table.setColumnCount(8)
         self.table.setHorizontalHeaderLabels([
-            "ID", "Məhsulun Adı", "Kateqoriya", "Qiymət (AZN)", "Qiymət Dəyişdi (Gün)", "Məhsul Mənbəyi", "Ölçü Vahidi", "Qeyd"
+            "ID", "Məhsulun Adı", "Kateqoriya", "Qiymət", "Qiymət Dəyişdi (Gün)", "Məhsul Mənbəyi", "Ölçü Vahidi", "Qeyd"
         ])
 
         # Table styling
@@ -284,6 +287,23 @@ class MainWindow(QMainWindow):
             }
         """)
 
+        self.settings_btn = QPushButton("⚙️ Ayarlar")
+        self.settings_btn.clicked.connect(self.open_settings)
+        self.settings_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #607D8B;
+                color: white;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 5px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #546E7A;
+            }
+        """)
+
         button_layout.addWidget(self.add_btn)
         button_layout.addWidget(self.edit_btn)
         button_layout.addWidget(self.delete_btn)
@@ -292,6 +312,7 @@ class MainWindow(QMainWindow):
         button_layout.addWidget(self.reconnect_btn)
         button_layout.addWidget(self.boq_btn)
         button_layout.addWidget(self.project_btn)
+        button_layout.addWidget(self.settings_btn)
         button_layout.addStretch()
 
         main_layout.addLayout(button_layout)
@@ -358,6 +379,7 @@ class MainWindow(QMainWindow):
             config = dialog.get_config()
             try:
                 self.db = DatabaseManager(**config)
+                self.currency_manager = CurrencySettingsManager(self.db)
                 user_display = f"{config['username']}@" if config['username'] else ""
                 self.connection_label.setText(
                     f"🟢 Qoşuldu: {user_display}{config['host']}:{config['port']}/{config['database']}"
@@ -408,9 +430,13 @@ class MainWindow(QMainWindow):
             self.table.setItem(row_position, 2, QTableWidgetItem(
                 product.get('category', '') or 'N/A'
             ))
-            self.table.setItem(row_position, 3, QTableWidgetItem(
-                f"{float(product['price']):.2f}" if product.get('price') else "N/A"
-            ))
+            currency = product.get('currency', 'AZN') or 'AZN'
+            price = float(product['price']) if product.get('price') else 0
+            price_azn = product.get('price_azn')
+            if price_azn is None:
+                price_azn = self.currency_manager.convert_to_azn(price, currency)
+            price_text = f"{price:.2f} {currency} (AZN {price_azn:.2f})" if price else "N/A"
+            self.table.setItem(row_position, 3, QTableWidgetItem(price_text))
 
             # Calculate days since price last changed
             price_last_changed = product.get('price_last_changed')
@@ -498,7 +524,9 @@ class MainWindow(QMainWindow):
                     data['qeyd'],
                     data['olcu_vahidi'],
                     data['category'],
-                    image_id=image_id if image_id is not None else None
+                    image_id=image_id if image_id is not None else None,
+                    currency=data.get('currency', 'AZN'),
+                    price_azn=data.get('price_azn')
                 )
                 if success:
                     QMessageBox.information(self, "Uğurlu", "Məhsul uğurla yeniləndi!")
@@ -721,7 +749,9 @@ class MainWindow(QMainWindow):
                     data['qeyd'],
                     data['olcu_vahidi'],
                     data['category'],
-                    image_id=image_id
+                    image_id=image_id,
+                    currency=data.get('currency', 'AZN'),
+                    price_azn=data.get('price_azn')
                 )
 
                 if new_product_id:
@@ -758,6 +788,8 @@ class MainWindow(QMainWindow):
                 'quantity': 1,
                 'unit': product.get('olcu_vahidi', ''),
                 'unit_price': product.get('price', 0),
+                'currency': product.get('currency', 'AZN') or 'AZN',
+                'unit_price_azn': product.get('price_azn'),
                 'category': product.get('category', ''),
                 'source': product.get('mehsul_menbeyi', ''),
                 'note': product.get('qeyd', '')
@@ -813,6 +845,8 @@ class MainWindow(QMainWindow):
                     'quantity': 1,
                     'unit': product.get('olcu_vahidi', ''),
                     'unit_price': product.get('price', 0),
+                    'currency': product.get('currency', 'AZN') or 'AZN',
+                    'unit_price_azn': product.get('price_azn'),
                     'category': product.get('category', '')
                 }
 
@@ -919,3 +953,8 @@ class MainWindow(QMainWindow):
             # Bring existing window to front
             self.project_window.raise_()
             self.project_window.activateWindow()
+
+    def open_settings(self):
+        """Open currency settings dialog"""
+        dialog = CurrencySettingsDialog(self, self.db)
+        dialog.exec()

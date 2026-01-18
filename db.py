@@ -88,12 +88,15 @@ class DatabaseManager:
             # Could not create indexes (silent for GUI app)
             pass
 
-    def create_product(self, mehsulun_adi, price, mehsul_menbeyi, qeyd, olcu_vahidi, category, image_id=None):
+    def create_product(self, mehsulun_adi, price, mehsul_menbeyi, qeyd, olcu_vahidi,
+                       category, image_id=None, currency="AZN", price_azn=None):
         """Create a new product"""
         try:
             product = {
                 'mehsulun_adi': mehsulun_adi,
                 'price': price,
+                'price_azn': price_azn if price_azn is not None else price,
+                'currency': currency or 'AZN',
                 'mehsul_menbeyi': mehsul_menbeyi,
                 'qeyd': qeyd,
                 'olcu_vahidi': olcu_vahidi,
@@ -145,7 +148,8 @@ class DatabaseManager:
         except Exception as e:
             raise Exception(f"Failed to get price history: {e}")
 
-    def update_product(self, product_id, mehsulun_adi, price, mehsul_menbeyi, qeyd, olcu_vahidi, category, image_id=None):
+    def update_product(self, product_id, mehsulun_adi, price, mehsul_menbeyi, qeyd, olcu_vahidi,
+                       category, image_id=None, currency="AZN", price_azn=None):
         """Update an existing product"""
         try:
             # Handle both string and ObjectId
@@ -159,6 +163,8 @@ class DatabaseManager:
                 '$set': {
                     'mehsulun_adi': mehsulun_adi,
                     'price': price,
+                    'price_azn': price_azn if price_azn is not None else price,
+                    'currency': currency or 'AZN',
                     'mehsul_menbeyi': mehsul_menbeyi,
                     'qeyd': qeyd,
                     'olcu_vahidi': olcu_vahidi,
@@ -167,13 +173,16 @@ class DatabaseManager:
             }
 
             # If price changed, update the timestamp and add to history
-            if current_product and current_product.get('price') != price:
+            compare_old = current_product.get('price_azn', current_product.get('price'))
+            compare_new = price_azn if price_azn is not None else price
+            if current_product and compare_old != compare_new:
                 update_data['$set']['price_last_changed'] = datetime.now(timezone.utc)
                 # Add to price history
-                old_price = current_product.get('price', 0)
+                old_price = compare_old or 0
                 history_entry = {
                     'old_price': old_price,
-                    'new_price': price,
+                    'new_price': compare_new or 0,
+                    'currency': 'AZN',
                     'changed_at': datetime.now(timezone.utc)
                 }
                 update_data['$push'] = {'price_history': history_entry}
@@ -363,6 +372,29 @@ class DatabaseManager:
         except Exception as e:
             raise Exception(f"Failed to delete cloud BoQ: {e}")
 
+    # App Settings Methods
+    def get_app_setting(self, key):
+        """Get an application setting by key"""
+        try:
+            settings_collection = self.db['app_settings']
+            doc = settings_collection.find_one({'key': key})
+            return doc.get('value') if doc else None
+        except Exception as e:
+            raise Exception(f"Failed to get app setting: {e}")
+
+    def set_app_setting(self, key, value):
+        """Set an application setting by key"""
+        try:
+            settings_collection = self.db['app_settings']
+            settings_collection.update_one(
+                {'key': key},
+                {'$set': {'value': value, 'updated_at': datetime.now(timezone.utc)}},
+                upsert=True
+            )
+            return True
+        except Exception as e:
+            raise Exception(f"Failed to set app setting: {e}")
+
     # BoQ Template Methods
     def save_template(self, template_name, items):
         """Save a BoQ template to cloud"""
@@ -381,6 +413,8 @@ class DatabaseManager:
                     'name': item['name'],
                     'unit': item.get('unit', ''),
                     'default_price': default_price,
+                    'default_price_azn': item.get('default_price_azn'),
+                    'currency': item.get('currency', 'AZN') or 'AZN',
                     'category': item.get('category', ''),
                     'source': item.get('source', ''),
                     'note': item.get('note', ''),
