@@ -335,6 +335,8 @@ class PriceHistoryDialog(QDialog):
             changed_at = entry.get('changed_at')
             if changed_at:
                 if hasattr(changed_at, 'astimezone'):
+                    if changed_at.tzinfo is None:
+                        changed_at = changed_at.replace(tzinfo=timezone.utc)
                     local_time = changed_at.astimezone()
                     date_str = local_time.strftime("%d.%m.%Y %H:%M")
                 else:
