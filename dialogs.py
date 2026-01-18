@@ -1544,7 +1544,7 @@ class ProductSelectionDialog(QDialog):
                 if currency == "AZN":
                     price_text = f"{price:.2f} AZN"
                 else:
-                    price_text = f"AZN {price_azn:.2f} ({price:.2f} {currency})"
+                    price_text = f"{price_azn:.2f} AZN ({price:.2f} {currency})"
                 self.products_table.setItem(row, 3, QTableWidgetItem(price_text))
 
         except Exception as e:

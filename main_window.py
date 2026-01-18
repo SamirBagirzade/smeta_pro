@@ -452,7 +452,7 @@ class MainWindow(QMainWindow):
             if currency == "AZN":
                 price_text = f"{price:.2f} AZN"
             else:
-                price_text = f"AZN {price_azn:.2f} ({price:.2f} {currency})"
+                price_text = f"{price_azn:.2f} AZN ({price:.2f} {currency})"
             self.table.setItem(row_position, 3, QTableWidgetItem(price_text))
 
             # Calculate days since price last changed
