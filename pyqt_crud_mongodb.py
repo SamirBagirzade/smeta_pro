@@ -225,6 +225,13 @@ class DatabaseManager:
             if isinstance(product_id, str):
                 product_id = ObjectId(product_id)
 
+            product = self.collection.find_one({'_id': product_id})
+            if product and product.get('image_id'):
+                try:
+                    self.fs.delete(product['image_id'])
+                except Exception:
+                    pass
+
             result = self.collection.delete_one({'_id': product_id})
             return result.deleted_count > 0
         except Exception as e:
@@ -233,6 +240,8 @@ class DatabaseManager:
     def search_products(self, search_term):
         """Search products by name, source, note, or category"""
         try:
+            if not search_term:
+                return self.read_all_products()
             # Use text search for better performance
             products = list(self.collection.find(
                 {'$text': {'$search': search_term}}
@@ -386,10 +395,13 @@ class DatabaseManager:
             # Remove quantity-specific data for template
             template_items = []
             for item in items:
+                default_price = item.get('default_price')
+                if default_price is None:
+                    default_price = item.get('unit_price', 0)
                 template_item = {
                     'name': item['name'],
                     'unit': item.get('unit', ''),
-                    'unit_price': item.get('unit_price', 0),
+                    'default_price': default_price,
                     'category': item.get('category', ''),
                     'source': item.get('source', ''),
                     'note': item.get('note', ''),
@@ -446,6 +458,9 @@ class DatabaseManager:
             template = self.template_collection.find_one({'_id': template_id})
             if template:
                 template['id'] = str(template['_id'])
+                for item in template.get('items', []):
+                    if 'default_price' not in item and 'unit_price' in item:
+                        item['default_price'] = item.get('unit_price', 0)
             return template
         except Exception as e:
             raise Exception(f"Failed to load template: {e}")
@@ -1443,16 +1458,29 @@ class BoQItemDialog(QDialog):
 
     def get_data(self):
         """Get form data"""
-        return {
-            'product_id': self.product_combo.text().strip() if self.mode == "add_from_db" and hasattr(self, 'product_combo') and self.product_combo.text().strip() else None,
+        product_id = None
+        if self.mode == "add_from_db" and hasattr(self, 'product_combo') and self.product_combo.text().strip():
+            product_id = self.product_combo.text().strip()
+        elif self.item:
+            product_id = self.item.get('product_id')
+
+        data = {
+            'product_id': product_id,
             'name': self.name_input.text().strip(),
             'quantity': self.quantity_input.value(),
             'unit': self.unit_input.text().strip(),
             'unit_price': self.price_input.value(),
             'total': self.quantity_input.value() * self.price_input.value(),
             'margin_percent': self.margin_input.value(),
-            'is_custom': self.mode == "custom"
+            'is_custom': self.item.get('is_custom') if self.item else self.mode == "custom"
         }
+
+        if self.item:
+            data['category'] = self.item.get('category', '')
+            data['source'] = self.item.get('source', '')
+            data['note'] = self.item.get('note', '')
+
+        return data
 
     def accept(self):
         """Validate before accepting"""
@@ -3118,7 +3146,8 @@ class TemplateManagementWindow(QDialog):
 
             self.items_table.setItem(row, 0, QTableWidgetItem(item.get('generic_name', item.get('name', ''))))
             self.items_table.setItem(row, 1, QTableWidgetItem(item.get('unit', '')))
-            self.items_table.setItem(row, 2, QTableWidgetItem(f"{item.get('default_price', 0):.2f}"))
+            default_price = item.get('default_price', item.get('unit_price', 0))
+            self.items_table.setItem(row, 2, QTableWidgetItem(f"{default_price:.2f}"))
 
             # Type: Generic or DB-linked
             item_type = "DB" if item.get('product_id') else "Generik"
@@ -3956,7 +3985,10 @@ class ProjectWindow(QMainWindow):
                     items = boq.get('items', [])
                     boq_table.setItem(row, 1, QTableWidgetItem(str(len(items))))
 
-                    boq_total = sum(item.get('total', 0) for item in items)
+                    boq_total = sum(
+                        item.get('total', 0) * (1 + item.get('margin_percent', 0) / 100)
+                        for item in items
+                    )
                     total_project_amount += boq_total
                     boq_table.setItem(row, 2, QTableWidgetItem(f"{boq_total:.2f} AZN"))
             except:
