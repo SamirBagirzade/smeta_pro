@@ -258,9 +258,27 @@ class TemplateManagementWindow(QDialog):
 
     def add_item_from_db(self):
         """Add item from database as template item"""
-        dialog = TemplateItemDialog(self, mode="from_db", db=self.db)
+        dialog = ProductSelectionDialog(self, self.db, "", "")
         if dialog.exec():
-            item_data = dialog.get_data()
+            product = dialog.get_selected_product()
+            if not product:
+                return
+            unit_price = float(product['price']) if product.get('price') else 0
+            currency = product.get('currency', 'AZN') or 'AZN'
+            unit_price_azn = product.get('price_azn')
+            if unit_price_azn is None:
+                unit_price_azn = self.boq_window.currency_manager.convert_to_azn(unit_price, currency) if self.boq_window else unit_price
+            item_data = {
+                'generic_name': product.get('mehsulun_adi', ''),
+                'name': product.get('mehsulun_adi', ''),
+                'category': product.get('category', ''),
+                'unit': product.get('olcu_vahidi', '') or 'ədəd',
+                'default_price': unit_price,
+                'currency': currency,
+                'default_price_azn': unit_price_azn,
+                'product_id': str(product.get('_id')) if product.get('_id') else None,
+                'is_generic': False
+            }
             self.template_items.append(item_data)
             self.refresh_items_table()
 
