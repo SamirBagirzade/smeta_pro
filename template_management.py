@@ -135,6 +135,14 @@ class TemplateManagementWindow(QDialog):
         self.edit_item_btn.clicked.connect(self.edit_item)
         self.edit_item_btn.setStyleSheet("background-color: #9C27B0; color: white; padding: 8px 16px; border: none; border-radius: 4px;")
 
+        self.move_up_btn = QPushButton("⬆️ Yuxarı")
+        self.move_up_btn.clicked.connect(self.move_item_up)
+        self.move_up_btn.setStyleSheet("background-color: #607D8B; color: white; padding: 8px 16px; border: none; border-radius: 4px;")
+
+        self.move_down_btn = QPushButton("⬇️ Aşağı")
+        self.move_down_btn.clicked.connect(self.move_item_down)
+        self.move_down_btn.setStyleSheet("background-color: #607D8B; color: white; padding: 8px 16px; border: none; border-radius: 4px;")
+
         self.delete_item_btn = QPushButton("🗑️ Sil")
         self.delete_item_btn.clicked.connect(self.delete_item)
         self.delete_item_btn.setStyleSheet("background-color: #f44336; color: white; padding: 8px 16px; border: none; border-radius: 4px;")
@@ -142,6 +150,8 @@ class TemplateManagementWindow(QDialog):
         item_btn_layout.addWidget(self.add_generic_btn)
         item_btn_layout.addWidget(self.add_from_db_btn)
         item_btn_layout.addWidget(self.edit_item_btn)
+        item_btn_layout.addWidget(self.move_up_btn)
+        item_btn_layout.addWidget(self.move_down_btn)
         item_btn_layout.addWidget(self.delete_item_btn)
         item_btn_layout.addStretch()
 
@@ -341,6 +351,30 @@ class TemplateManagementWindow(QDialog):
 
         del self.template_items[selected_row]
         self.refresh_items_table()
+
+    def move_item_up(self):
+        """Move selected item up in the list"""
+        selected_row = self.items_table.currentRow()
+        if selected_row <= 0:
+            return
+        self.template_items[selected_row - 1], self.template_items[selected_row] = (
+            self.template_items[selected_row],
+            self.template_items[selected_row - 1],
+        )
+        self.refresh_items_table()
+        self.items_table.selectRow(selected_row - 1)
+
+    def move_item_down(self):
+        """Move selected item down in the list"""
+        selected_row = self.items_table.currentRow()
+        if selected_row < 0 or selected_row >= len(self.template_items) - 1:
+            return
+        self.template_items[selected_row + 1], self.template_items[selected_row] = (
+            self.template_items[selected_row],
+            self.template_items[selected_row + 1],
+        )
+        self.refresh_items_table()
+        self.items_table.selectRow(selected_row + 1)
 
     def save_template(self):
         """Save current template"""
