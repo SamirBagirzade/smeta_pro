@@ -1,0 +1,1478 @@
+"""BoQ window implementation."""
+
+import os
+from datetime import timezone
+
+from PyQt6.QtWidgets import (
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
+    QTableWidget, QTableWidgetItem, QPushButton, QHeaderView, QMessageBox,
+    QDialog
+)
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont, QShortcut, QKeySequence
+
+from dialogs import BoQItemDialog
+from template_management import TemplateManagementWindow
+
+
+class BoQWindow(QMainWindow):
+    """Bill of Quantities Window"""
+
+    def __init__(self, parent=None, db=None):
+        super().__init__(parent)
+        self.parent_window = parent
+        self.db = db
+        self.boq_items = []  # List to store BoQ items
+        self.next_id = 1
+        self.boq_name = "BoQ 1"  # Default name
+        self.init_ui()
+
+    def init_ui(self):
+        self.setWindowTitle("📋 Bill of Quantities (BoQ)")
+        self.setGeometry(150, 150, 1200, 650)
+
+        # Central widget
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        main_layout = QVBoxLayout()
+
+        # Title and Name section with Up/Down buttons
+        title_layout = QHBoxLayout()
+
+        title = QLabel("Bill of Quantities")
+        title_font = QFont()
+        title_font.setPointSize(16)
+        title_font.setBold(True)
+        title.setFont(title_font)
+        title.setStyleSheet("color: #2196F3; padding: 10px;")
+
+        # Move Up/Down buttons (small, at top)
+        self.move_up_btn = QPushButton("⬆️")
+        self.move_up_btn.clicked.connect(self.move_item_up)
+        self.move_up_btn.setFixedSize(40, 30)
+        self.move_up_btn.setStyleSheet("background-color: #607D8B; color: white; border: none; border-radius: 4px; font-weight: bold;")
+        self.move_up_btn.setToolTip("Yuxarı daşı (Ctrl+Up)")
+
+        self.move_down_btn = QPushButton("⬇️")
+        self.move_down_btn.clicked.connect(self.move_item_down)
+        self.move_down_btn.setFixedSize(40, 30)
+        self.move_down_btn.setStyleSheet("background-color: #607D8B; color: white; border: none; border-radius: 4px; font-weight: bold;")
+        self.move_down_btn.setToolTip("Aşağı daşı (Ctrl+Down)")
+
+        # BoQ Name input
+        name_label = QLabel("BoQ Adı:")
+        name_label.setStyleSheet("font-size: 14px; font-weight: bold;")
+        self.boq_name_input = QLineEdit(self.boq_name)
+        self.boq_name_input.setMaximumWidth(200)
+        self.boq_name_input.setStyleSheet("font-size: 14px; padding: 5px;")
+        self.boq_name_input.textChanged.connect(self.update_boq_name)
+
+        title_layout.addWidget(title)
+        title_layout.addWidget(self.move_up_btn)
+        title_layout.addWidget(self.move_down_btn)
+        title_layout.addStretch()
+        title_layout.addWidget(name_label)
+        title_layout.addWidget(self.boq_name_input)
+
+        main_layout.addLayout(title_layout)
+
+        # Table with margin column
+        self.table = QTableWidget()
+        self.table.setColumnCount(12)
+        self.table.setHorizontalHeaderLabels([
+            "№", "Adı", "Kateqoriya", "Miqdar", "Ölçü Vahidi", "Vahid Qiymət", "Cəmi", "Marja %", "Yekun", "Mənbə", "Qeyd", "Növ"
+        ])
+
+        # Table styling
+        self.table.setAlternatingRowColors(True)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setSortingEnabled(True)  # Enable column sorting
+
+        # Resize columns
+        header = self.table.horizontalHeader()
+        header.setSortIndicatorShown(True)
+        header.sectionClicked.connect(self.sort_by_column)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # №
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)  # Adı
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # Kateqoriya
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)  # Miqdar
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)  # Ölçü Vahidi
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)  # Vahid Qiymət
+        header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)  # Cəmi
+        header.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)  # Marja %
+        header.setSectionResizeMode(8, QHeaderView.ResizeMode.ResizeToContents)  # Yekun
+        header.setSectionResizeMode(9, QHeaderView.ResizeMode.Stretch)  # Mənbə
+        header.setSectionResizeMode(10, QHeaderView.ResizeMode.Stretch)  # Qeyd
+        header.setSectionResizeMode(11, QHeaderView.ResizeMode.ResizeToContents)  # Növ
+
+        main_layout.addWidget(self.table)
+
+        # Summary labels
+        summary_layout = QHBoxLayout()
+        summary_layout.addStretch()
+
+        self.cost_label = QLabel("Maya Dəyəri: 0.00 AZN")
+        self.cost_label.setStyleSheet("font-size: 14px; color: #666; padding: 10px;")
+
+        self.margin_total_label = QLabel("Ümumi Marja: 0.00 AZN")
+        self.margin_total_label.setStyleSheet("font-size: 14px; color: #FF9800; padding: 10px;")
+
+        self.summary_label = QLabel("Yekun Məbləğ: 0.00 AZN")
+        self.summary_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #4CAF50; padding: 10px;")
+
+        summary_layout.addWidget(self.cost_label)
+        summary_layout.addWidget(self.margin_total_label)
+        summary_layout.addWidget(self.summary_label)
+
+        main_layout.addLayout(summary_layout)
+
+        # Buttons - reorganized into two rows
+        button_layout1 = QHBoxLayout()
+        button_layout2 = QHBoxLayout()
+
+        self.add_custom_btn = QPushButton("➕ Xüsusi Qeyd")
+        self.add_custom_btn.clicked.connect(self.add_custom_item)
+        self.add_custom_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                padding: 8px 15px;
+                border: none;
+                border-radius: 5px;
+                font-size: 13px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #0b7dda;
+            }
+        """)
+
+        self.edit_btn = QPushButton("✏️ Redaktə Et")
+        self.edit_btn.clicked.connect(self.edit_item)
+        self.edit_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #FF9800;
+                color: white;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 5px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #e68900;
+            }
+        """)
+
+        self.delete_btn = QPushButton("🗑️ Sil")
+        self.delete_btn.clicked.connect(self.delete_item)
+        self.delete_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #f44336;
+                color: white;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 5px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #da190b;
+            }
+        """)
+
+        self.save_boq_btn = QPushButton("💾 BoQ Yadda Saxla")
+        self.save_boq_btn.clicked.connect(self.save_boq)
+        self.save_boq_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #9C27B0;
+                color: white;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 5px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #7B1FA2;
+            }
+        """)
+
+        self.load_boq_btn = QPushButton("📂 BoQ Yüklə")
+        self.load_boq_btn.clicked.connect(self.load_boq)
+        self.load_boq_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #FF9800;
+                color: white;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 5px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #e68900;
+            }
+        """)
+
+        self.export_excel_btn = QPushButton("📊 Excel-ə İxrac Et")
+        self.export_excel_btn.clicked.connect(self.export_to_excel)
+        self.export_excel_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 5px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+        """)
+
+        self.load_cloud_boq_btn = QPushButton("☁️ Buluddan Yüklə")
+        self.load_cloud_boq_btn.clicked.connect(self.load_from_cloud)
+        self.load_cloud_boq_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #00BCD4;
+                color: white;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 5px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #0097A7;
+            }
+        """)
+
+        self.combine_boq_btn = QPushButton("🔗 BoQ-ları Birləşdir")
+        self.combine_boq_btn.clicked.connect(self.combine_boqs_to_excel)
+        self.combine_boq_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #673AB7;
+                color: white;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 5px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #5E35B1;
+            }
+        """)
+
+        # Template Management button
+        self.template_mgmt_btn = QPushButton("📋 Şablonlar")
+        self.template_mgmt_btn.clicked.connect(self.open_template_management)
+        self.template_mgmt_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #795548;
+                color: white;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 5px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #6D4C41;
+            }
+        """)
+
+        # Row 1: Edit actions
+        button_layout1.addWidget(self.add_custom_btn)
+        button_layout1.addWidget(self.edit_btn)
+        button_layout1.addWidget(self.delete_btn)
+        button_layout1.addWidget(self.save_boq_btn)
+        button_layout1.addWidget(self.load_boq_btn)
+        button_layout1.addStretch()
+
+        # Row 2: Export/Cloud/Templates
+        button_layout2.addWidget(self.load_cloud_boq_btn)
+        button_layout2.addWidget(self.export_excel_btn)
+        button_layout2.addWidget(self.combine_boq_btn)
+        button_layout2.addWidget(self.template_mgmt_btn)
+        button_layout2.addStretch()
+
+        main_layout.addLayout(button_layout1)
+        main_layout.addLayout(button_layout2)
+        central_widget.setLayout(main_layout)
+
+        # Apply light mode styling
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #f5f5f5;
+            }
+            QTableWidget {
+                background-color: white;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+            }
+        """)
+
+        # Setup keyboard shortcuts
+        self.setup_shortcuts()
+
+    def setup_shortcuts(self):
+        """Setup keyboard shortcuts for BoQWindow"""
+        # Ctrl+S: Save BoQ
+        QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(self.save_boq)
+
+        # Ctrl+O: Load BoQ
+        QShortcut(QKeySequence("Ctrl+O"), self).activated.connect(self.load_boq)
+
+        # Ctrl+E: Edit selected item
+        QShortcut(QKeySequence("Ctrl+E"), self).activated.connect(self.edit_item)
+
+        # Delete: Delete selected item(s)
+        QShortcut(QKeySequence("Delete"), self).activated.connect(self.delete_item)
+
+        # Ctrl+Up: Move item up
+        QShortcut(QKeySequence("Ctrl+Up"), self).activated.connect(self.move_item_up)
+
+        # Ctrl+Down: Move item down
+        QShortcut(QKeySequence("Ctrl+Down"), self).activated.connect(self.move_item_down)
+
+    def add_from_database(self):
+        """Add item from database"""
+        if not self.db:
+            QMessageBox.warning(self, "Xəta", "Verilənlər bazasına qoşulmayıbsınız!")
+            return
+
+        dialog = BoQItemDialog(self, self.db, mode="add_from_db")
+        if dialog.exec():
+            data = dialog.get_data()
+            data['id'] = self.next_id
+            self.next_id += 1
+            self.boq_items.append(data)
+            self.refresh_table()
+
+    def add_custom_item(self):
+        """Add custom item (not from database)"""
+        dialog = BoQItemDialog(self, self.db, mode="custom")
+        if dialog.exec():
+            data = dialog.get_data()
+            data['id'] = self.next_id
+            self.next_id += 1
+            self.boq_items.append(data)
+            self.refresh_table()
+
+    def edit_item(self):
+        """Edit selected item"""
+        selected_row = self.table.currentRow()
+        if selected_row < 0:
+            QMessageBox.warning(self, "Xəbərdarlıq", "Redaktə etmək üçün qeyd seçin!")
+            return
+
+        item = self.boq_items[selected_row]
+        mode = "custom" if item.get('is_custom') else "edit"
+
+        dialog = BoQItemDialog(self, self.db, item=item, mode=mode)
+        if dialog.exec():
+            data = dialog.get_data()
+            data['id'] = item['id']
+            self.boq_items[selected_row] = data
+            self.refresh_table()
+
+    def delete_item(self):
+        """Delete selected item(s)"""
+        # Get all selected rows
+        selected_rows = self.table.selectionModel().selectedRows()
+
+        if not selected_rows:
+            QMessageBox.warning(self, "Xəbərdarlıq", "Silmək üçün qeyd seçin!")
+            return
+
+        # Confirm deletion
+        if len(selected_rows) == 1:
+            message = "Bu qeydi silmək istədiyinizdən əminsiniz?"
+        else:
+            message = f"{len(selected_rows)} qeydi silmək istədiyinizdən əminsiniz?"
+
+        reply = QMessageBox.question(
+            self,
+            "Təsdiq",
+            message,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            # Get row indices and sort in descending order
+            # This allows us to delete from bottom to top without affecting other indices
+            rows_to_delete = sorted([index.row() for index in selected_rows], reverse=True)
+
+            # Delete items from the list
+            for row in rows_to_delete:
+                del self.boq_items[row]
+
+            self.refresh_table()
+
+    def move_item_up(self):
+        """Move selected item up in the list"""
+        selected_row = self.table.currentRow()
+        if selected_row < 0:
+            QMessageBox.warning(self, "Xəbərdarlıq", "Yuxarı daşımaq üçün qeyd seçin!")
+            return
+
+        if selected_row == 0:
+            return  # Already at top
+
+        # Swap items
+        self.boq_items[selected_row], self.boq_items[selected_row - 1] = \
+            self.boq_items[selected_row - 1], self.boq_items[selected_row]
+
+        # Renumber items
+        self._renumber_items()
+        self.refresh_table()
+
+        # Keep selection on the moved item
+        self.table.selectRow(selected_row - 1)
+
+    def move_item_down(self):
+        """Move selected item down in the list"""
+        selected_row = self.table.currentRow()
+        if selected_row < 0:
+            QMessageBox.warning(self, "Xəbərdarlıq", "Aşağı daşımaq üçün qeyd seçin!")
+            return
+
+        if selected_row >= len(self.boq_items) - 1:
+            return  # Already at bottom
+
+        # Swap items
+        self.boq_items[selected_row], self.boq_items[selected_row + 1] = \
+            self.boq_items[selected_row + 1], self.boq_items[selected_row]
+
+        # Renumber items
+        self._renumber_items()
+        self.refresh_table()
+
+        # Keep selection on the moved item
+        self.table.selectRow(selected_row + 1)
+
+    def _renumber_items(self):
+        """Renumber all items sequentially"""
+        for idx, item in enumerate(self.boq_items, start=1):
+            item['id'] = idx
+        self.next_id = len(self.boq_items) + 1
+
+    def refresh_table(self):
+        """Refresh the BoQ table"""
+        self.table.setRowCount(0)
+
+        for item in self.boq_items:
+            row_position = self.table.rowCount()
+            self.table.insertRow(row_position)
+
+            # Get margin percent (default 0)
+            margin_pct = item.get('margin_percent', 0)
+            cost_total = item['total']
+            final_total = cost_total * (1 + margin_pct / 100)
+
+            # Column 0: №
+            self.table.setItem(row_position, 0, QTableWidgetItem(str(item['id'])))
+            # Column 1: Adı
+            self.table.setItem(row_position, 1, QTableWidgetItem(item['name']))
+            # Column 2: Kateqoriya
+            self.table.setItem(row_position, 2, QTableWidgetItem(item.get('category', '') or 'N/A'))
+            # Column 3: Miqdar
+            self.table.setItem(row_position, 3, QTableWidgetItem(f"{item['quantity']:.2f}"))
+            # Column 4: Ölçü Vahidi
+            self.table.setItem(row_position, 4, QTableWidgetItem(item['unit']))
+            # Column 5: Vahid Qiymət
+            self.table.setItem(row_position, 5, QTableWidgetItem(f"{item['unit_price']:.2f}"))
+            # Column 6: Cəmi (cost)
+            self.table.setItem(row_position, 6, QTableWidgetItem(f"{cost_total:.2f}"))
+            # Column 7: Marja %
+            self.table.setItem(row_position, 7, QTableWidgetItem(f"{margin_pct:.1f}%"))
+            # Column 8: Yekun (with margin)
+            self.table.setItem(row_position, 8, QTableWidgetItem(f"{final_total:.2f}"))
+            # Column 9: Mənbə
+            self.table.setItem(row_position, 9, QTableWidgetItem(item.get('source', '') or 'N/A'))
+            # Column 10: Qeyd
+            self.table.setItem(row_position, 10, QTableWidgetItem(item.get('note', '') or 'N/A'))
+            # Column 11: Növ
+            item_type = "Xüsusi" if item.get('is_custom') else "DB"
+            self.table.setItem(row_position, 11, QTableWidgetItem(item_type))
+
+        # Update summary
+        self.update_summary()
+
+    def update_summary(self):
+        """Update the summary labels with cost total, margin total, and final amount"""
+        cost_total = sum(item['total'] for item in self.boq_items)
+        margin_total = sum(item['total'] * (item.get('margin_percent', 0) / 100) for item in self.boq_items)
+        final_total = cost_total + margin_total
+
+        self.cost_label.setText(f"Maya Dəyəri: {cost_total:.2f} AZN")
+        self.margin_total_label.setText(f"Ümumi Marja: {margin_total:.2f} AZN")
+        self.summary_label.setText(f"Yekun Məbləğ: {final_total:.2f} AZN")
+
+    def sort_by_column(self, column):
+        """Sort boq_items by the clicked column"""
+        # Map column indices to item keys
+        column_keys = {
+            0: 'id',
+            1: 'name',
+            2: 'category',
+            3: 'quantity',
+            4: 'unit',
+            5: 'unit_price',
+            6: 'total',
+            7: 'margin_percent',
+            8: 'final_total',  # computed, not stored
+            9: 'source',
+            10: 'note',
+            11: 'is_custom'
+        }
+
+        key = column_keys.get(column)
+        if not key:
+            return
+
+        # Check current sort order from header
+        header = self.table.horizontalHeader()
+        current_order = header.sortIndicatorOrder()
+
+        # Sort the boq_items list
+        reverse = (current_order == Qt.SortOrder.DescendingOrder)
+
+        try:
+            if key == 'final_total':
+                # Computed field: total * (1 + margin_percent/100)
+                self.boq_items.sort(key=lambda x: x.get('total', 0) * (1 + x.get('margin_percent', 0) / 100), reverse=reverse)
+            elif key in ['quantity', 'unit_price', 'total', 'id', 'margin_percent']:
+                # Numeric sort
+                self.boq_items.sort(key=lambda x: float(x.get(key, 0) or 0), reverse=reverse)
+            elif key == 'is_custom':
+                # Boolean sort
+                self.boq_items.sort(key=lambda x: x.get(key, False), reverse=reverse)
+            else:
+                # String sort
+                self.boq_items.sort(key=lambda x: str(x.get(key, '') or '').lower(), reverse=reverse)
+
+            # Renumber after sort
+            self._renumber_items()
+
+            # Refresh table without triggering sort again
+            self.table.setSortingEnabled(False)
+            self.refresh_table()
+            self.table.setSortingEnabled(True)
+
+        except Exception as e:
+            print(f"Sort error: {e}")
+
+    def export_to_excel(self):
+        """Export BoQ to Excel file"""
+        if not self.boq_items:
+            QMessageBox.warning(self, "Xəbərdarlıq", "BoQ boşdur! İxrac etmək üçün məhsul əlavə edin.")
+            return
+
+        try:
+            # Import openpyxl
+            try:
+                from openpyxl import Workbook
+                from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+            except ImportError:
+                QMessageBox.critical(
+                    self,
+                    "Xəta",
+                    "openpyxl kitabxanası tapılmadı!\n\nYükləmək üçün terminal-da:\npip install openpyxl"
+                )
+                return
+
+            # Ask user for file location
+            from PyQt6.QtWidgets import QFileDialog
+            file_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "BoQ-u Excel-ə İxrac Et",
+                "BoQ.xlsx",
+                "Excel Files (*.xlsx)"
+            )
+
+            if not file_path:
+                return
+
+            # Create workbook
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Bill of Quantities"
+
+            # Define styles
+            header_fill = PatternFill(start_color="2196F3", end_color="2196F3", fill_type="solid")
+            header_font = Font(bold=True, color="FFFFFF", size=12)
+            header_alignment = Alignment(horizontal="center", vertical="center")
+
+            total_fill = PatternFill(start_color="4CAF50", end_color="4CAF50", fill_type="solid")
+            total_font = Font(bold=True, color="FFFFFF", size=12)
+
+            border = Border(
+                left=Side(style='thin'),
+                right=Side(style='thin'),
+                top=Side(style='thin'),
+                bottom=Side(style='thin')
+            )
+
+            # Add title
+            ws.merge_cells('A1:L1')
+            ws['A1'] = "BILL OF QUANTITIES (BOQ)"
+            ws['A1'].font = Font(bold=True, size=16, color="2196F3")
+            ws['A1'].alignment = Alignment(horizontal="center", vertical="center")
+            ws.row_dimensions[1].height = 30
+
+            # Margin header style
+            margin_fill = PatternFill(start_color="FF9800", end_color="FF9800", fill_type="solid")
+
+            # Add headers
+            headers = ["№", "Adı", "Kateqoriya", "Miqdar", "Ölçü Vahidi", "Vahid Qiymət (AZN)", "Cəmi (AZN)", "Marja %", "Yekun (AZN)", "Mənbə", "Qeyd", "Növ"]
+            for col_num, header in enumerate(headers, 1):
+                cell = ws.cell(row=3, column=col_num)
+                cell.value = header
+                # Use orange color for margin columns
+                if col_num in [8, 9]:
+                    cell.fill = margin_fill
+                else:
+                    cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = header_alignment
+                cell.border = border
+
+            # Add data
+            cost_total = 0
+            margin_total = 0
+            final_total = 0
+            for row_num, item in enumerate(self.boq_items, 4):
+                margin_pct = item.get('margin_percent', 0)
+                item_cost = item['total']
+                item_final = item_cost * (1 + margin_pct / 100)
+
+                # Column 1: №
+                ws.cell(row=row_num, column=1, value=item['id']).border = border
+                # Column 2: Adı
+                ws.cell(row=row_num, column=2, value=item['name']).border = border
+                # Column 3: Kateqoriya
+                ws.cell(row=row_num, column=3, value=item.get('category', '') or 'N/A').border = border
+                # Column 4: Miqdar
+                ws.cell(row=row_num, column=4, value=item['quantity']).border = border
+                # Column 5: Ölçü Vahidi
+                ws.cell(row=row_num, column=5, value=item['unit']).border = border
+                # Column 6: Vahid Qiymət
+                ws.cell(row=row_num, column=6, value=item['unit_price']).border = border
+                # Column 7: Cəmi (cost)
+                ws.cell(row=row_num, column=7, value=item_cost).border = border
+                # Column 8: Marja %
+                ws.cell(row=row_num, column=8, value=margin_pct).border = border
+                # Column 9: Yekun (with margin)
+                ws.cell(row=row_num, column=9, value=item_final).border = border
+                # Column 10: Mənbə
+                ws.cell(row=row_num, column=10, value=item.get('source', '') or 'N/A').border = border
+                # Column 11: Qeyd
+                ws.cell(row=row_num, column=11, value=item.get('note', '') or 'N/A').border = border
+                # Column 12: Növ
+                item_type = "Xüsusi" if item.get('is_custom') else "DB"
+                ws.cell(row=row_num, column=12, value=item_type).border = border
+
+                # Format numbers
+                ws.cell(row=row_num, column=4).number_format = '0.00'
+                ws.cell(row=row_num, column=6).number_format = '0.00'
+                ws.cell(row=row_num, column=7).number_format = '0.00'
+                ws.cell(row=row_num, column=8).number_format = '0.0'
+                ws.cell(row=row_num, column=9).number_format = '0.00'
+
+                cost_total += item_cost
+                margin_total += (item_final - item_cost)
+                final_total += item_final
+
+            # Add total row
+            total_row = len(self.boq_items) + 5
+
+            # Cost total label
+            ws.merge_cells(f'A{total_row}:F{total_row}')
+            cost_label_cell = ws[f'A{total_row}']
+            cost_label_cell.value = "MAYA DƏYƏRİ:"
+            cost_label_cell.fill = header_fill
+            cost_label_cell.font = total_font
+            cost_label_cell.alignment = Alignment(horizontal="right", vertical="center")
+            cost_label_cell.border = border
+
+            # Cost total value
+            cost_value_cell = ws[f'G{total_row}']
+            cost_value_cell.value = cost_total
+            cost_value_cell.fill = header_fill
+            cost_value_cell.font = total_font
+            cost_value_cell.alignment = Alignment(horizontal="center", vertical="center")
+            cost_value_cell.border = border
+            cost_value_cell.number_format = '0.00'
+
+            # Margin total label
+            margin_label_cell = ws[f'H{total_row}']
+            margin_label_cell.value = "Marja:"
+            margin_label_cell.fill = margin_fill
+            margin_label_cell.font = total_font
+            margin_label_cell.alignment = Alignment(horizontal="center", vertical="center")
+            margin_label_cell.border = border
+
+            # Final total value
+            final_value_cell = ws[f'I{total_row}']
+            final_value_cell.value = final_total
+            final_value_cell.fill = total_fill
+            final_value_cell.font = total_font
+            final_value_cell.alignment = Alignment(horizontal="center", vertical="center")
+            final_value_cell.border = border
+            final_value_cell.number_format = '0.00'
+
+            # Fill remaining cells in total row
+            for col in ['J', 'K', 'L']:
+                ws[f'{col}{total_row}'].fill = total_fill
+                ws[f'{col}{total_row}'].border = border
+
+            # Add margin summary row
+            margin_row = total_row + 1
+            ws.merge_cells(f'A{margin_row}:F{margin_row}')
+            margin_summary_cell = ws[f'A{margin_row}']
+            margin_summary_cell.value = "ÜMUMİ MARJA:"
+            margin_summary_cell.fill = margin_fill
+            margin_summary_cell.font = total_font
+            margin_summary_cell.alignment = Alignment(horizontal="right", vertical="center")
+            margin_summary_cell.border = border
+
+            margin_summary_value = ws[f'G{margin_row}']
+            margin_summary_value.value = margin_total
+            margin_summary_value.fill = margin_fill
+            margin_summary_value.font = total_font
+            margin_summary_value.alignment = Alignment(horizontal="center", vertical="center")
+            margin_summary_value.border = border
+            margin_summary_value.number_format = '0.00'
+
+            # Fill remaining cells
+            for col in ['H', 'I', 'J', 'K', 'L']:
+                ws[f'{col}{margin_row}'].fill = margin_fill
+                ws[f'{col}{margin_row}'].border = border
+
+            # Adjust column widths
+            ws.column_dimensions['A'].width = 8
+            ws.column_dimensions['B'].width = 30
+            ws.column_dimensions['C'].width = 15
+            ws.column_dimensions['D'].width = 10
+            ws.column_dimensions['E'].width = 12
+            ws.column_dimensions['F'].width = 18
+            ws.column_dimensions['G'].width = 15
+            ws.column_dimensions['H'].width = 10
+            ws.column_dimensions['I'].width = 15
+            ws.column_dimensions['J'].width = 20
+            ws.column_dimensions['K'].width = 20
+            ws.column_dimensions['L'].width = 10
+
+            # Save file
+            wb.save(file_path)
+
+            QMessageBox.information(
+                self,
+                "Uğurlu",
+                f"BoQ uğurla Excel-ə ixrac edildi!\n\n{file_path}"
+            )
+
+        except Exception as e:
+            QMessageBox.critical(self, "Xəta", f"İxrac zamanı xəta:\n{str(e)}")
+
+    def update_boq_name(self):
+        """Update BoQ name from input field"""
+        self.boq_name = self.boq_name_input.text().strip() or "BoQ 1"
+
+    def save_boq(self):
+        """Save BoQ to JSON file with optional cloud save"""
+        if not self.boq_items:
+            QMessageBox.warning(self, "Xəbərdarlıq", "BoQ boşdur! Yadda saxlamaq üçün məhsul əlavə edin.")
+            return
+
+        try:
+            import json
+            from PyQt6.QtWidgets import QFileDialog, QCheckBox
+
+            # Create custom dialog with checkbox
+            dialog = QDialog(self)
+            dialog.setWindowTitle("BoQ-u Yadda Saxla")
+            dialog.setMinimumWidth(400)
+
+            layout = QVBoxLayout()
+
+            # Info label
+            info_label = QLabel("BoQ-u harada saxlamaq istəyirsiniz?")
+            layout.addWidget(info_label)
+
+            # Cloud save checkbox
+            cloud_checkbox = QCheckBox("☁️ Buludda da saxla (MongoDB)")
+            cloud_checkbox.setChecked(True)  # Default checked
+            cloud_checkbox.setStyleSheet("padding: 10px; font-size: 12px;")
+            layout.addWidget(cloud_checkbox)
+
+            # Buttons
+            button_layout = QHBoxLayout()
+            save_btn = QPushButton("💾 Yadda Saxla")
+            save_btn.setDefault(True)
+            cancel_btn = QPushButton("❌ Ləğv Et")
+
+            save_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #4CAF50;
+                    color: white;
+                    padding: 8px 16px;
+                    border: none;
+                    border-radius: 4px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #45a049;
+                }
+            """)
+
+            cancel_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #f44336;
+                    color: white;
+                    padding: 8px 16px;
+                    border: none;
+                    border-radius: 4px;
+                }
+                QPushButton:hover {
+                    background-color: #da190b;
+                }
+            """)
+
+            button_layout.addWidget(save_btn)
+            button_layout.addWidget(cancel_btn)
+            layout.addLayout(button_layout)
+
+            dialog.setLayout(layout)
+
+            # Connect buttons
+            save_btn.clicked.connect(dialog.accept)
+            cancel_btn.clicked.connect(dialog.reject)
+
+            # Show dialog
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return
+
+            save_to_cloud = cloud_checkbox.isChecked()
+
+            # Ask user for file location
+            default_name = f"{self.boq_name}.json" if self.boq_name else "BoQ.json"
+
+            # Set default directory to saved_boqs folder
+            saved_boqs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saved_boqs")
+            os.makedirs(saved_boqs_dir, exist_ok=True)
+            default_path = os.path.join(saved_boqs_dir, default_name)
+
+            file_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "BoQ-u Yadda Saxla",
+                default_path,
+                "JSON Files (*.json)"
+            )
+
+            if not file_path:
+                return
+
+            # Prepare data for saving
+            save_data = {
+                'boq_name': self.boq_name,
+                'next_id': self.next_id,
+                'items': self.boq_items
+            }
+
+            # Save to local file
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(save_data, f, ensure_ascii=False, indent=2)
+
+            success_message = f"BoQ lokal faylda yadda saxlanıldı:\n{file_path}"
+
+            # Save to cloud if checkbox is checked
+            if save_to_cloud and self.db:
+                try:
+                    _, is_new = self.db.save_boq_to_cloud(
+                        self.boq_name,
+                        self.boq_items,
+                        self.next_id
+                    )
+                    if is_new:
+                        success_message += "\n\n✅ Buludda da saxlanıldı (yeni)!"
+                    else:
+                        success_message += "\n\n✅ Buludda yeniləndi!"
+                except Exception as cloud_error:
+                    success_message += f"\n\n⚠️ Bulud saxlama xətası: {cloud_error}"
+
+            QMessageBox.information(
+                self,
+                "Uğurlu",
+                success_message
+            )
+
+        except Exception as e:
+            QMessageBox.critical(self, "Xəta", f"BoQ yadda saxlanarkən xəta:\n{str(e)}")
+
+    def load_boq(self):
+        """Load BoQ from JSON file and update prices from database"""
+        try:
+            import json
+            from PyQt6.QtWidgets import QFileDialog
+
+            # Ask user for file to load
+            file_path, _ = QFileDialog.getOpenFileName(
+                self,
+                "BoQ Yüklə",
+                "",
+                "JSON Files (*.json)"
+            )
+
+            if not file_path:
+                return
+
+            # Confirm if current BoQ will be replaced
+            if self.boq_items:
+                reply = QMessageBox.question(
+                    self,
+                    "Təsdiq",
+                    "Mövcud BoQ məlumatları əvəz olunacaq. Davam etmək istəyirsiniz?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                if reply != QMessageBox.StandardButton.Yes:
+                    return
+
+            # Load from file
+            with open(file_path, 'r', encoding='utf-8') as f:
+                save_data = json.load(f)
+
+            self.boq_name = save_data.get('boq_name', 'BoQ 1')
+            self.boq_name_input.setText(self.boq_name)
+            self.next_id = save_data.get('next_id', 1)
+            loaded_items = save_data.get('items', [])
+
+            # Update prices from database for items that came from DB
+            updated_count = 0
+            for item in loaded_items:
+                if not item.get('is_custom') and item.get('product_id') and self.db:
+                    try:
+                        # Get current product data from database
+                        product = self.db.read_product(item['product_id'])
+                        if product:
+                            # Update price, category, source, and note from database
+                            old_price = item['unit_price']
+                            new_price = float(product['price']) if product.get('price') else 0
+
+                            item['unit_price'] = new_price
+                            item['total'] = item['quantity'] * new_price
+                            item['category'] = product.get('category', '') or ''
+                            item['source'] = product.get('mehsul_menbeyi', '') or ''
+                            item['note'] = product.get('qeyd', '') or ''
+
+                            if old_price != new_price:
+                                updated_count += 1
+                    except Exception:
+                        # If product not found or error, keep the saved data
+                        pass
+
+            self.boq_items = loaded_items
+            self.refresh_table()
+
+            message = f"BoQ uğurla yükləndi!\n\n{len(loaded_items)} məhsul yükləndi."
+            if updated_count > 0:
+                message += f"\n{updated_count} məhsulun qiyməti yeniləndi."
+
+            QMessageBox.information(self, "Uğurlu", message)
+
+        except Exception as e:
+            QMessageBox.critical(self, "Xəta", f"BoQ yüklənərkən xəta:\n{str(e)}")
+
+    def load_from_cloud(self):
+        """Load BoQ from cloud (MongoDB)"""
+        if not self.db:
+            QMessageBox.warning(self, "Xəbərdarlıq", "Verilənlər bazasına qoşulun!")
+            return
+
+        try:
+            # Get all cloud BoQs
+            cloud_boqs = self.db.get_all_cloud_boqs()
+
+            if not cloud_boqs:
+                QMessageBox.information(self, "Məlumat", "Buludda heç bir BoQ tapılmadı!")
+                return
+
+            # Create selection dialog
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Buluddan BoQ Yüklə")
+            dialog.setMinimumWidth(600)
+            dialog.setMinimumHeight(500)
+
+            layout = QVBoxLayout()
+
+            # Title
+            title = QLabel("Yükləmək üçün BoQ seçin:")
+            title.setStyleSheet("font-size: 14px; font-weight: bold; padding: 10px;")
+            layout.addWidget(title)
+
+            # Search input
+            search_layout = QHBoxLayout()
+            search_input = QLineEdit()
+            search_input.setPlaceholderText("🔍 BoQ adına görə axtar...")
+            search_input.setStyleSheet("""
+                QLineEdit {
+                    padding: 8px 12px;
+                    border: 2px solid #ddd;
+                    border-radius: 5px;
+                    font-size: 13px;
+                }
+                QLineEdit:focus {
+                    border-color: #2196F3;
+                }
+            """)
+            search_layout.addWidget(search_input)
+            layout.addLayout(search_layout)
+
+            # List widget for BoQs
+            from PyQt6.QtWidgets import QListWidget, QListWidgetItem
+            boq_list = QListWidget()
+            boq_list.setStyleSheet("""
+                QListWidget {
+                    font-size: 13px;
+                    padding: 5px;
+                }
+                QListWidget::item {
+                    padding: 10px;
+                    border-bottom: 1px solid #ddd;
+                }
+                QListWidget::item:hover {
+                    background-color: #e3f2fd;
+                }
+                QListWidget::item:selected {
+                    background-color: #2196F3;
+                    color: white;
+                }
+            """)
+
+            # Store all BoQs for filtering
+            all_boqs = cloud_boqs
+
+            def format_boq_item(boq):
+                """Format BoQ data for display"""
+                item_count = len(boq.get('items', []))
+                updated_at = boq.get('updated_at', '')
+                if updated_at:
+                    try:
+                        # Convert UTC to local time
+                        if updated_at.tzinfo is None:
+                            updated_at = updated_at.replace(tzinfo=timezone.utc)
+                        local_time = updated_at.astimezone()
+                        updated_str = local_time.strftime('%Y-%m-%d %H:%M')
+                    except Exception:
+                        updated_str = str(updated_at)
+                else:
+                    updated_str = "Naməlum"
+                return f"{boq['name']} ({item_count} məhsul) - Son yenilənmə: {updated_str}"
+
+            def populate_list(boqs):
+                """Populate the list with BoQs"""
+                boq_list.clear()
+                for boq in boqs:
+                    item_text = format_boq_item(boq)
+                    list_item = QListWidgetItem(item_text)
+                    list_item.setData(Qt.ItemDataRole.UserRole, boq['id'])
+                    boq_list.addItem(list_item)
+
+            def search_boqs():
+                """Search BoQs based on input"""
+                search_term = search_input.text().strip()
+                if not search_term:
+                    populate_list(all_boqs)
+                else:
+                    try:
+                        # Search from database
+                        filtered_boqs = self.db.search_cloud_boqs(search_term)
+                        populate_list(filtered_boqs)
+                    except Exception:
+                        # Fallback to local filtering
+                        filtered_boqs = [b for b in all_boqs if search_term.lower() in b['name'].lower()]
+                        populate_list(filtered_boqs)
+
+            # Connect search input to search function
+            search_input.textChanged.connect(search_boqs)
+
+            # Initial population
+            populate_list(all_boqs)
+
+            layout.addWidget(boq_list)
+
+            # Buttons
+            button_layout = QHBoxLayout()
+
+            load_btn = QPushButton("📥 Yüklə")
+            load_btn.setDefault(True)
+            delete_btn = QPushButton("🗑️ Sil")
+            cancel_btn = QPushButton("❌ Ləğv Et")
+
+            load_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #4CAF50;
+                    color: white;
+                    padding: 8px 16px;
+                    border: none;
+                    border-radius: 4px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #45a049;
+                }
+            """)
+
+            delete_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #f44336;
+                    color: white;
+                    padding: 8px 16px;
+                    border: none;
+                    border-radius: 4px;
+                }
+                QPushButton:hover {
+                    background-color: #da190b;
+                }
+            """)
+
+            cancel_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #9E9E9E;
+                    color: white;
+                    padding: 8px 16px;
+                    border: none;
+                    border-radius: 4px;
+                }
+                QPushButton:hover {
+                    background-color: #757575;
+                }
+            """)
+
+            button_layout.addWidget(load_btn)
+            button_layout.addWidget(delete_btn)
+            button_layout.addStretch()
+            button_layout.addWidget(cancel_btn)
+            layout.addLayout(button_layout)
+
+            dialog.setLayout(layout)
+
+            # Handle load button
+            def load_selected():
+                selected_items = boq_list.selectedItems()
+                if not selected_items:
+                    QMessageBox.warning(dialog, "Xəbərdarlıq", "BoQ seçin!")
+                    return
+
+                boq_id = selected_items[0].data(Qt.ItemDataRole.UserRole)
+
+                # Confirm if current BoQ will be replaced
+                if self.boq_items:
+                    reply = QMessageBox.question(
+                        dialog,
+                        "Təsdiq",
+                        "Mövcud BoQ məlumatları əvəz olunacaq. Davam etmək istəyirsiniz?",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                    )
+                    if reply != QMessageBox.StandardButton.Yes:
+                        return
+
+                # Load BoQ from cloud
+                boq_data = self.db.load_boq_from_cloud(boq_id)
+                if boq_data:
+                    self.boq_name = boq_data.get('name', 'BoQ 1')
+                    self.boq_name_input.setText(self.boq_name)
+                    self.next_id = boq_data.get('next_id', 1)
+                    loaded_items = boq_data.get('items', [])
+
+                    # Update prices from database for items that came from DB
+                    updated_count = 0
+                    for item in loaded_items:
+                        if not item.get('is_custom') and item.get('product_id') and self.db:
+                            try:
+                                product = self.db.read_product(item['product_id'])
+                                if product:
+                                    old_price = item['unit_price']
+                                    new_price = float(product['price']) if product.get('price') else 0
+
+                                    item['unit_price'] = new_price
+                                    item['total'] = item['quantity'] * new_price
+                                    item['category'] = product.get('category', '') or ''
+                                    item['source'] = product.get('mehsul_menbeyi', '') or ''
+                                    item['note'] = product.get('qeyd', '') or ''
+
+                                    if old_price != new_price:
+                                        updated_count += 1
+                            except Exception:
+                                pass
+
+                    self.boq_items = loaded_items
+                    self.refresh_table()
+
+                    message = f"BoQ buluddan yükləndi!\n\n{len(loaded_items)} məhsul yükləndi."
+                    if updated_count > 0:
+                        message += f"\n{updated_count} məhsulun qiyməti yeniləndi."
+
+                    QMessageBox.information(self, "Uğurlu", message)
+                    dialog.accept()
+                else:
+                    QMessageBox.critical(dialog, "Xəta", "BoQ yüklənə bilmədi!")
+
+            # Handle delete button
+            def delete_selected():
+                selected_items = boq_list.selectedItems()
+                if not selected_items:
+                    QMessageBox.warning(dialog, "Xəbərdarlıq", "BoQ seçin!")
+                    return
+
+                boq_id = selected_items[0].data(Qt.ItemDataRole.UserRole)
+                boq_name = selected_items[0].text().split(' (')[0]
+
+                reply = QMessageBox.question(
+                    dialog,
+                    "Təsdiq",
+                    f"'{boq_name}' BoQ-nu buluddan silmək istədiyinizdən əminsiniz?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+
+                if reply == QMessageBox.StandardButton.Yes:
+                    if self.db.delete_cloud_boq(boq_id):
+                        boq_list.takeItem(boq_list.row(selected_items[0]))
+                        QMessageBox.information(dialog, "Uğurlu", "BoQ buluddan silindi!")
+
+                        if boq_list.count() == 0:
+                            QMessageBox.information(dialog, "Məlumat", "Buludda daha BoQ qalmadı.")
+                            dialog.accept()
+                    else:
+                        QMessageBox.critical(dialog, "Xəta", "BoQ silinə bilmədi!")
+
+            load_btn.clicked.connect(load_selected)
+            delete_btn.clicked.connect(delete_selected)
+            cancel_btn.clicked.connect(dialog.reject)
+
+            # Double click to load
+            boq_list.itemDoubleClicked.connect(load_selected)
+
+            dialog.exec()
+
+        except Exception as e:
+            QMessageBox.critical(self, "Xəta", f"Buluddan yükləmə xətası:\n{str(e)}")
+
+    def combine_boqs_to_excel(self):
+        """Combine multiple BoQs into a single Excel file"""
+        try:
+            import json
+            from PyQt6.QtWidgets import QFileDialog
+            from openpyxl import Workbook
+            from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+
+            # Ask user to select multiple BoQ files
+            file_paths, _ = QFileDialog.getOpenFileNames(
+                self,
+                "BoQ Fayllarını Seçin",
+                "",
+                "JSON Files (*.json)"
+            )
+
+            if not file_paths or len(file_paths) < 2:
+                QMessageBox.warning(self, "Xəbərdarlıq", "Ən azı 2 BoQ faylı seçin!")
+                return
+
+            # Load all BoQs
+            boqs = []
+            for file_path in file_paths:
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        boq_data = json.load(f)
+                        boqs.append({
+                            'name': boq_data.get('boq_name', os.path.basename(file_path)),
+                            'items': boq_data.get('items', [])
+                        })
+                except Exception as e:
+                    QMessageBox.warning(self, "Xəbərdarlıq", f"Fayl oxuna bilmədi: {os.path.basename(file_path)}\n{str(e)}")
+
+            if len(boqs) < 2:
+                QMessageBox.warning(self, "Xəbərdarlıq", "Ən azı 2 BoQ uğurla yüklənməlidir!")
+                return
+
+            # Create a unified list of all unique items (by name)
+            all_items_dict = {}
+            for boq in boqs:
+                for item in boq['items']:
+                    item_key = item['name']
+                    if item_key not in all_items_dict:
+                        all_items_dict[item_key] = {
+                            'name': item['name'],
+                            'unit': item.get('unit', 'ədəd'),
+                            'unit_price': item.get('unit_price', 0),
+                            'category': item.get('category', ''),
+                            'source': item.get('source', ''),
+                            'note': item.get('note', ''),
+                            'quantities': {}
+                        }
+
+            # Fill quantities for each BoQ
+            for boq_idx, boq in enumerate(boqs):
+                boq_name = boq['name']
+                for item in boq['items']:
+                    item_key = item['name']
+                    all_items_dict[item_key]['quantities'][boq_name] = item.get('quantity', 0)
+
+            # Ensure all items have entries for all BoQs (fill with 0 if missing)
+            for item_data in all_items_dict.values():
+                for boq in boqs:
+                    if boq['name'] not in item_data['quantities']:
+                        item_data['quantities'][boq['name']] = 0
+
+            # Ask user for output file
+            output_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Birləşdirilmiş BoQ-u Yadda Saxla",
+                "Birləşdirilmiş_BoQ.xlsx",
+                "Excel Files (*.xlsx)"
+            )
+
+            if not output_path:
+                return
+
+            # Create Excel workbook
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Combined BoQ"
+
+            # Define styles
+            header_fill = PatternFill(start_color="2196F3", end_color="2196F3", fill_type="solid")
+            header_font = Font(bold=True, color="FFFFFF", size=11)
+            header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+            total_fill = PatternFill(start_color="4CAF50", end_color="4CAF50", fill_type="solid")
+            total_font = Font(bold=True, color="FFFFFF", size=11)
+
+            border = Border(
+                left=Side(style='thin'),
+                right=Side(style='thin'),
+                top=Side(style='thin'),
+                bottom=Side(style='thin')
+            )
+
+            # Title
+            num_boqs = len(boqs)
+            ws.merge_cells(f'A1:{chr(65 + 5 + num_boqs)}1')
+            ws['A1'] = "BİRLƏŞDİRİLMİŞ BILL OF QUANTITIES (BOQ)"
+            ws['A1'].font = Font(bold=True, size=16, color="2196F3")
+            ws['A1'].alignment = Alignment(horizontal="center", vertical="center")
+            ws.row_dimensions[1].height = 30
+
+            # Headers
+            headers = ["№", "Adı", "Kateqoriya", "Ölçü Vahidi", "Vahid Qiymət (AZN)"]
+            for boq in boqs:
+                headers.append(f"{boq['name']}\n(Miqdar)")
+            headers.append("Cəmi\nMiqdar")
+            headers.append("Cəmi\nQiymət (AZN)")
+
+            col_num = 1
+            for header in headers:
+                cell = ws.cell(row=3, column=col_num)
+                cell.value = header
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = header_alignment
+                cell.border = border
+                col_num += 1
+
+            # Data rows
+            row_num = 4
+            for idx, (item_name, item_data) in enumerate(sorted(all_items_dict.items()), 1):
+                ws.cell(row=row_num, column=1, value=idx).border = border
+                ws.cell(row=row_num, column=2, value=item_data['name']).border = border
+                ws.cell(row=row_num, column=3, value=item_data['category'] or 'N/A').border = border
+                ws.cell(row=row_num, column=4, value=item_data['unit']).border = border
+                ws.cell(row=row_num, column=5, value=item_data['unit_price']).border = border
+                ws.cell(row=row_num, column=5).number_format = '0.00'
+
+                # Quantities for each BoQ
+                col = 6
+                first_qty_col = chr(65 + 5)  # F
+                for boq in boqs:
+                    qty = item_data['quantities'][boq['name']]
+                    ws.cell(row=row_num, column=col, value=qty).border = border
+                    ws.cell(row=row_num, column=col).number_format = '0.00'
+                    col += 1
+
+                last_qty_col = chr(65 + col - 2)  # Last BoQ column
+
+                # Total quantity column (SUM formula)
+                total_qty_col = chr(65 + col - 1)
+                total_qty_cell = ws.cell(row=row_num, column=col)
+                total_qty_cell.value = f"=SUM({first_qty_col}{row_num}:{last_qty_col}{row_num})"
+                total_qty_cell.border = border
+                total_qty_cell.number_format = '0.00'
+                total_qty_cell.font = Font(bold=True)
+                col += 1
+
+                # Total price column (Total Quantity * Unit Price)
+                price_col = 'E'  # Unit price column
+                total_price_cell = ws.cell(row=row_num, column=col)
+                total_price_cell.value = f"={total_qty_col}{row_num}*{price_col}{row_num}"
+                total_price_cell.border = border
+                total_price_cell.number_format = '#,##0.00'
+                total_price_cell.font = Font(bold=True)
+
+                row_num += 1
+
+            # Add grand total row
+            total_row = row_num + 1
+            ws.merge_cells(f'A{total_row}:{chr(65 + 5 + num_boqs)}{total_row}')
+            total_label_cell = ws[f'A{total_row}']
+            total_label_cell.value = "ÜMUMİ MƏBLƏĞ:"
+            total_label_cell.fill = total_fill
+            total_label_cell.font = total_font
+            total_label_cell.alignment = Alignment(horizontal="right", vertical="center")
+            total_label_cell.border = border
+
+            # Grand total formula
+            total_price_col = chr(65 + 6 + num_boqs)
+            grand_total_cell = ws[f'{total_price_col}{total_row}']
+            grand_total_cell.value = f"=SUM({total_price_col}4:{total_price_col}{row_num - 1})"
+            grand_total_cell.fill = total_fill
+            grand_total_cell.font = total_font
+            grand_total_cell.alignment = Alignment(horizontal="center", vertical="center")
+            grand_total_cell.border = border
+            grand_total_cell.number_format = '#,##0.00'
+
+            # Adjust column widths
+            ws.column_dimensions['A'].width = 6
+            ws.column_dimensions['B'].width = 35
+            ws.column_dimensions['C'].width = 15
+            ws.column_dimensions['D'].width = 12
+            ws.column_dimensions['E'].width = 18
+
+            for i in range(num_boqs + 2):  # BoQ columns + Total Qty + Total Price
+                col_letter = chr(70 + i)  # Start from F
+                ws.column_dimensions[col_letter].width = 14
+
+            # Save file
+            wb.save(output_path)
+
+            QMessageBox.information(
+                self,
+                "Uğurlu",
+                f"BoQ-lar uğurla birləşdirildi!\n\n{len(boqs)} BoQ birləşdirildi\n{len(all_items_dict)} unikal məhsul\n\n{output_path}"
+            )
+
+        except Exception as e:
+            QMessageBox.critical(self, "Xəta", f"BoQ-lar birləşdirilərkən xəta:\n{str(e)}")
+
+    def open_template_management(self):
+        """Open Template Management window"""
+        if not self.db:
+            QMessageBox.warning(self, "Xəbərdarlıq", "Verilənlər bazasına qoşulmayıbsınız!")
+            return
+
+        dialog = TemplateManagementWindow(self, self.db, self)
+        dialog.exec()
