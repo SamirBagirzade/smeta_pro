@@ -435,7 +435,13 @@ class MainWindow(QMainWindow):
             price_azn = product.get('price_azn')
             if price_azn is None:
                 price_azn = self.currency_manager.convert_to_azn(price, currency)
-            price_text = f"{price:.2f} {currency} (AZN {price_azn:.2f})" if price else "N/A"
+            if price:
+                if currency == "AZN":
+                    price_text = f"{price:.2f} AZN"
+                else:
+                    price_text = f"AZN {price_azn:.2f} ({price:.2f} {currency})"
+            else:
+                price_text = "N/A"
             self.table.setItem(row_position, 3, QTableWidgetItem(price_text))
 
             # Calculate days since price last changed

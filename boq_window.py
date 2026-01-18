@@ -530,7 +530,11 @@ class SmetaWindow(QMainWindow):
             unit_item.setFlags(unit_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.table.setItem(row_position, 4, unit_item)
             # Column 5: Vahid Qiymət
-            price_item = QTableWidgetItem(f"{unit_price:.2f} {currency} (AZN {unit_price_azn:.2f})")
+            if currency == "AZN":
+                price_text = f"{unit_price:.2f} AZN"
+            else:
+                price_text = f"AZN {unit_price_azn:.2f} ({unit_price:.2f} {currency})"
+            price_item = QTableWidgetItem(price_text)
             price_item.setFlags(price_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.table.setItem(row_position, 5, price_item)
             # Column 6: Cəmi (cost)

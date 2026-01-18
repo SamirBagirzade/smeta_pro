@@ -1263,7 +1263,11 @@ class ProductSelectionDialog(QDialog):
                 price_azn = product.get('price_azn')
                 if price_azn is None:
                     price_azn = self.currency_manager.convert_to_azn(price, currency)
-                self.products_table.setItem(row, 3, QTableWidgetItem(f"{price:.2f} {currency} (AZN {price_azn:.2f})"))
+                if currency == "AZN":
+                    price_text = f"{price:.2f} AZN"
+                else:
+                    price_text = f"AZN {price_azn:.2f} ({price:.2f} {currency})"
+                self.products_table.setItem(row, 3, QTableWidgetItem(price_text))
 
         except Exception as e:
             print(f"Search error: {e}")

@@ -20,6 +20,7 @@ class CurrencySettingsManager:
     def __init__(self, db=None):
         self.db = db
         self.settings_file = os.path.join(os.path.dirname(__file__), "app_settings.json")
+        self._cache = None
 
     def _default_data(self):
         return {
@@ -67,15 +68,20 @@ class CurrencySettingsManager:
             self.save_local(data)
         except Exception:
             pass
+        self._cache = data
         return data
 
     def save(self, data):
         data = self._merge_defaults(data)
         self.save_local(data)
         self.save_db(data)
+        self._cache = data
 
     def get_rates(self):
-        data = self.load()
+        if self._cache is None:
+            data = self.load()
+        else:
+            data = self._cache
         return data.get("rates", DEFAULT_RATES.copy())
 
     def convert_to_azn(self, amount, currency):

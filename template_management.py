@@ -204,9 +204,11 @@ class TemplateManagementWindow(QDialog):
             default_price_azn = item.get('default_price_azn')
             if default_price_azn is None:
                 default_price_azn = default_price if currency == 'AZN' else 0
-            self.items_table.setItem(
-                row, 2, QTableWidgetItem(f"{default_price:.2f} {currency} (AZN {default_price_azn:.2f})")
-            )
+            if currency == "AZN":
+                price_text = f"{default_price:.2f} AZN"
+            else:
+                price_text = f"AZN {default_price_azn:.2f} ({default_price:.2f} {currency})"
+            self.items_table.setItem(row, 2, QTableWidgetItem(price_text))
 
             # Type: Generic or DB-linked
             item_type = "DB" if item.get('product_id') else "Generik"
