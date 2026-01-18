@@ -6,7 +6,7 @@ from datetime import timezone
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QTableWidget, QTableWidgetItem, QPushButton, QHeaderView, QMessageBox,
-    QDialog
+    QDialog, QSpinBox
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QShortcut, QKeySequence
@@ -27,6 +27,7 @@ class SmetaWindow(QMainWindow):
         self.boq_items = []  # List to store Smeta items
         self.next_id = 1
         self.boq_name = "Smeta 1"  # Default name
+        self.string_count = 0
         self._updating_table = False
         self.init_ui()
 
@@ -70,12 +71,24 @@ class SmetaWindow(QMainWindow):
         self.boq_name_input.setStyleSheet("font-size: 14px; padding: 5px;")
         self.boq_name_input.textChanged.connect(self.update_boq_name)
 
+        # String count input
+        string_label = QLabel("String Sayı:")
+        string_label.setStyleSheet("font-size: 14px; font-weight: bold;")
+        self.string_input = QSpinBox()
+        self.string_input.setRange(0, 999999)
+        self.string_input.setValue(self.string_count)
+        self.string_input.setMaximumWidth(120)
+        self.string_input.setStyleSheet("font-size: 14px; padding: 5px;")
+        self.string_input.valueChanged.connect(self.update_string_count)
+
         title_layout.addWidget(title)
         title_layout.addWidget(self.move_up_btn)
         title_layout.addWidget(self.move_down_btn)
         title_layout.addStretch()
         title_layout.addWidget(name_label)
         title_layout.addWidget(self.boq_name_input)
+        title_layout.addWidget(string_label)
+        title_layout.addWidget(self.string_input)
 
         main_layout.addLayout(title_layout)
 
@@ -354,7 +367,7 @@ class SmetaWindow(QMainWindow):
             QMessageBox.warning(self, "Xəta", "Verilənlər bazasına qoşulmayıbsınız!")
             return
 
-        dialog = SmetaItemDialog(self, self.db, mode="add_from_db")
+        dialog = SmetaItemDialog(self, self.db, mode="add_from_db", string_count=self.string_count)
         if dialog.exec():
             data = dialog.get_data()
             data['id'] = self.next_id
@@ -364,7 +377,7 @@ class SmetaWindow(QMainWindow):
 
     def add_custom_item(self):
         """Add custom item (not from database)"""
-        dialog = SmetaItemDialog(self, self.db, mode="custom")
+        dialog = SmetaItemDialog(self, self.db, mode="custom", string_count=self.string_count)
         if dialog.exec():
             data = dialog.get_data()
             data['id'] = self.next_id
@@ -384,7 +397,7 @@ class SmetaWindow(QMainWindow):
         item = self.boq_items[selected_row]
         mode = "custom" if item.get('is_custom') else "edit"
 
-        dialog = SmetaItemDialog(self, self.db, item=item, mode=mode)
+        dialog = SmetaItemDialog(self, self.db, item=item, mode=mode, string_count=self.string_count)
         if dialog.exec():
             data = dialog.get_data()
             data['id'] = item['id']
@@ -921,6 +934,10 @@ class SmetaWindow(QMainWindow):
         """Update Smeta name from input field"""
         self.boq_name = self.boq_name_input.text().strip() or "Smeta 1"
 
+    def update_string_count(self):
+        """Update string count from input field"""
+        self.string_count = int(self.string_input.value())
+
     def save_boq(self):
         """Save Smeta to JSON file with optional cloud save"""
         if not self.boq_items:
@@ -1019,6 +1036,7 @@ class SmetaWindow(QMainWindow):
             save_data = {
                 'boq_name': self.boq_name,
                 'next_id': self.next_id,
+                'string_count': self.string_count,
                 'items': self.boq_items
             }
 
@@ -1034,7 +1052,8 @@ class SmetaWindow(QMainWindow):
                     _, is_new = self.db.save_boq_to_cloud(
                         self.boq_name,
                         self.boq_items,
-                        self.next_id
+                        self.next_id,
+                        self.string_count
                     )
                     if is_new:
                         success_message += "\n\n✅ Buludda da saxlanıldı (yeni)!"
@@ -1087,6 +1106,8 @@ class SmetaWindow(QMainWindow):
             self.boq_name = save_data.get('boq_name', 'Smeta 1')
             self.boq_name_input.setText(self.boq_name)
             self.next_id = save_data.get('next_id', 1)
+            self.string_count = int(save_data.get('string_count', 0))
+            self.string_input.setValue(self.string_count)
             loaded_items = save_data.get('items', [])
 
             # Update prices from database for items that came from DB
@@ -1334,6 +1355,8 @@ class SmetaWindow(QMainWindow):
                     self.boq_name = boq_data.get('name', 'Smeta 1')
                     self.boq_name_input.setText(self.boq_name)
                     self.next_id = boq_data.get('next_id', 1)
+                    self.string_count = int(boq_data.get('string_count', 0))
+                    self.string_input.setValue(self.string_count)
                     loaded_items = boq_data.get('items', [])
 
                     # Update prices from database for items that came from DB

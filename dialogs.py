@@ -7,25 +7,32 @@ import ast
 
 from PyQt6.QtWidgets import (
     QDialog, QFormLayout, QLineEdit, QSpinBox, QPushButton, QMessageBox,
-    QHBoxLayout, QVBoxLayout, QLabel, QTextEdit, QDoubleSpinBox, QFileDialog,
-    QScrollArea, QTableWidget, QTableWidgetItem, QHeaderView, QComboBox
+    QHBoxLayout, QVBoxLayout, QLabel, QTextEdit, QFileDialog,
+    QScrollArea, QTableWidget, QTableWidgetItem, QHeaderView, QComboBox,
+    QDoubleSpinBox
 )
-from PyQt6.QtCore import Qt, QTimer, QObject, QEvent
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont, QColor, QPixmap
 
 from db import DatabaseManager
 from currency_settings import CurrencySettingsManager
 
 
-def _safe_eval_expr(expr):
+def _safe_eval_expr(expr, variables=None):
     """Safely evaluate simple arithmetic expressions."""
     node = ast.parse(expr, mode="eval")
-    allowed_nodes = (ast.Expression, ast.BinOp, ast.UnaryOp, ast.Num, ast.Constant)
+    allowed_nodes = (ast.Expression, ast.BinOp, ast.UnaryOp, ast.Num, ast.Constant, ast.Name, ast.Load)
     allowed_ops = (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Mod, ast.Pow, ast.UAdd, ast.USub)
+    allowed_op_nodes = allowed_ops
 
     def _validate(n):
+        if isinstance(n, allowed_op_nodes):
+            return
         if not isinstance(n, allowed_nodes):
             raise ValueError("Invalid expression")
+        if isinstance(n, ast.Name):
+            if not variables or n.id not in variables:
+                raise ValueError("Invalid variable")
         if isinstance(n, ast.BinOp) and not isinstance(n.op, allowed_ops):
             raise ValueError("Invalid operator")
         if isinstance(n, ast.UnaryOp) and not isinstance(n.op, allowed_ops):
@@ -34,58 +41,34 @@ def _safe_eval_expr(expr):
             _validate(child)
 
     _validate(node)
-    value = eval(compile(node, "<expr>", "eval"), {"__builtins__": {}})
+    value = eval(compile(node, "<expr>", "eval"), {"__builtins__": {}}, variables or {})
     if not isinstance(value, (int, float)):
         raise ValueError("Invalid result")
     return float(value)
 
 
-def _apply_calc_to_spinbox(spinbox, text=None):
+def _parse_calc_text(text, variables=None):
     if text is None:
-        text = spinbox.lineEdit().text().strip()
-    if not text.startswith("="):
-        if not text:
-            return
-        try:
-            value = float(text.replace(",", "."))
-        except Exception:
-            return
-        spinbox.setValue(value)
-        return
-    expr = text[1:].strip()
+        return None
+    expr = text.strip()
     if not expr:
-        return
+        return None
+    expr = expr.replace(",", ".")
+    if expr.startswith("="):
+        expr = expr[1:].strip()
+    expr = expr.replace("^", "**")
     try:
-        value = _safe_eval_expr(expr)
+        if any(op in expr for op in "+-*/()%") or "**" in expr:
+            return _safe_eval_expr(expr, variables=variables)
+        if variables and expr in variables:
+            return float(variables[expr])
+        return float(expr)
     except Exception:
-        return
-    spinbox.setValue(value)
+        return None
 
 
-class _CalcFilter(QObject):
-    def __init__(self, spinbox):
-        super().__init__(spinbox)
-        self.spinbox = spinbox
-
-    def eventFilter(self, obj, event):
-        if event.type() == QEvent.Type.KeyPress and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            text = obj.text().strip()
-            if text.startswith("="):
-                _apply_calc_to_spinbox(self.spinbox, text)
-                return True
-        if event.type() == QEvent.Type.FocusOut:
-            text = obj.text().strip()
-            if text.startswith("="):
-                _apply_calc_to_spinbox(self.spinbox, text)
-        return super().eventFilter(obj, event)
-
-
-def _enable_calc_input(spinbox):
-    line_edit = spinbox.lineEdit()
-    line_edit.setValidator(None)
-    calc_filter = _CalcFilter(spinbox)
-    line_edit.installEventFilter(calc_filter)
-    spinbox._calc_filter = calc_filter
+def _format_price(value):
+    return f"{value:.2f}"
 
 
 class DatabaseConfigDialog(QDialog):
@@ -481,6 +464,7 @@ class ProductDialog(QDialog):
         self._original_currency = None
         self._stored_price_azn = None
         self._current_price_azn = 0.0
+        self._current_price_value = 0.0
         self.image_data = None  # Store uploaded image data
         self.image_filename = None
         self.remove_image = False  # Flag to indicate image removal
@@ -510,12 +494,10 @@ class ProductDialog(QDialog):
         layout.addRow("Kateqoriya:", self.category_input)
 
         # Price
-        self.price_input = QDoubleSpinBox()
-        self.price_input.setRange(0, 999999.99)
-        self.price_input.setDecimals(2)
-        self.price_input.setSuffix("")
+        self.price_input = QLineEdit()
+        self.price_input.setPlaceholderText("Məs: 3*2+1")
         layout.addRow("Qiymət:", self.price_input)
-        _enable_calc_input(self.price_input)
+        self.price_input.editingFinished.connect(self._sync_price_from_input)
 
         # Currency
         self.currency_input = QComboBox()
@@ -589,7 +571,7 @@ class ProductDialog(QDialog):
         if self.product:
             self.name_input.setText(self.product['mehsulun_adi'])
             self.category_input.setText(self.product.get('category', '') or '')
-            self.price_input.setValue(float(self.product['price']) if self.product.get('price') else 0)
+            self.price_input.setText(_format_price(float(self.product['price'])) if self.product.get('price') else "")
             currency = self.product.get('currency', 'AZN') or 'AZN'
             self._original_price = float(self.product.get('price') or 0)
             self._original_currency = currency
@@ -607,9 +589,9 @@ class ProductDialog(QDialog):
                 self.image_status_label.setStyleSheet("color: #4CAF50; font-weight: bold;")
                 self.remove_image_btn.setVisible(True)
 
-        self.price_input.valueChanged.connect(self.update_converted_price)
-        self.currency_input.currentTextChanged.connect(self.update_converted_price)
         self.update_converted_price()
+        self.currency_input.currentTextChanged.connect(self.update_converted_price)
+        self._sync_price_from_input()
 
         # Status label (for add mode)
         if self.mode == "add":
@@ -699,7 +681,7 @@ class ProductDialog(QDialog):
     def get_data(self):
         """Returns the form data"""
         currency = self.currency_input.currentText()
-        price = self.price_input.value() if self.price_input.value() > 0 else None
+        price = self._current_price_value if self._current_price_value > 0 else None
         price_azn = self._current_price_azn if price is not None else None
         data = {
             'mehsulun_adi': self.name_input.text().strip(),
@@ -721,13 +703,25 @@ class ProductDialog(QDialog):
 
     def update_converted_price(self):
         currency = self.currency_input.currentText()
-        price = self.price_input.value()
+        price = self._current_price_value
         if self._stored_price_azn is not None and self._original_price == price and self._original_currency == currency:
             price_azn = float(self._stored_price_azn)
         else:
             price_azn = self.currency_manager.convert_to_azn(price, currency)
         self._current_price_azn = price_azn
         self.price_azn_label.setText(f"{price_azn:.2f} AZN")
+
+    def _sync_price_from_input(self):
+        try:
+            value = _parse_calc_text(self.price_input.text())
+        except Exception:
+            value = None
+        if value is None:
+            self.price_input.setText(_format_price(self._current_price_value) if self._current_price_value else "")
+            return
+        self._current_price_value = max(0.0, value)
+        self.price_input.setText(_format_price(self._current_price_value))
+        self.update_converted_price()
 
     def save_and_continue(self):
         """Save product and clear form for adding another (add mode only)"""
@@ -791,7 +785,8 @@ class ProductDialog(QDialog):
         """Clear all input fields"""
         self.name_input.clear()
         self.category_input.clear()
-        self.price_input.setValue(0)
+        self._current_price_value = 0.0
+        self.price_input.clear()
         self.source_input.clear()
         self.unit_input.clear()
         self.note_input.clear()
@@ -820,7 +815,7 @@ class ProductDialog(QDialog):
 class SmetaItemDialog(QDialog):
     """Dialog for adding items to Smeta (from DB or custom)"""
 
-    def __init__(self, parent=None, db=None, item=None, mode="add_from_db"):
+    def __init__(self, parent=None, db=None, item=None, mode="add_from_db", string_count=0):
         super().__init__(parent)
         self.db = db
         self.item = item
@@ -830,6 +825,9 @@ class SmetaItemDialog(QDialog):
         self._original_currency = None
         self._stored_unit_price_azn = None
         self._current_unit_price_azn = 0.0
+        self._current_unit_price = 0.0
+        self._current_quantity = 1.0
+        self.string_count = int(string_count or 0)
         self.init_ui()
 
     def init_ui(self):
@@ -859,10 +857,10 @@ class SmetaItemDialog(QDialog):
         layout.addRow("Adı:", self.name_input)
 
         # Quantity
-        self.quantity_input = QDoubleSpinBox()
-        self.quantity_input.setRange(0.01, 999999.99)
-        self.quantity_input.setDecimals(2)
-        self.quantity_input.setValue(1)
+        self.quantity_input = QLineEdit()
+        self.quantity_input.setPlaceholderText("Məs: 3*2")
+        self.quantity_input.setText("1")
+        self.quantity_input.editingFinished.connect(self._sync_quantity_from_input)
         layout.addRow("Miqdar:", self.quantity_input)
 
         # Unit
@@ -874,15 +872,13 @@ class SmetaItemDialog(QDialog):
         layout.addRow("Ölçü Vahidi:", self.unit_input)
 
         # Unit Price
-        self.price_input = QDoubleSpinBox()
-        self.price_input.setRange(0, 999999.99)
-        self.price_input.setDecimals(2)
-        self.price_input.setSuffix("")
+        self.price_input = QLineEdit()
+        self.price_input.setPlaceholderText("Məs: 3*2+1")
         if self.mode == "add_from_db":
             self.price_input.setReadOnly(True)
         layout.addRow("Vahid Qiymət:", self.price_input)
         if self.mode != "add_from_db":
-            _enable_calc_input(self.price_input)
+            self.price_input.editingFinished.connect(self._sync_price_from_input)
 
         # Currency
         self.currency_input = QComboBox()
@@ -915,8 +911,6 @@ class SmetaItemDialog(QDialog):
         layout.addRow("Yekun (Marja ilə):", self.final_total_label)
 
         # Connect quantity change to update total
-        self.quantity_input.valueChanged.connect(self.update_total)
-        self.price_input.valueChanged.connect(self.update_total)
         self.margin_input.valueChanged.connect(self.update_total)
         self.currency_input.currentTextChanged.connect(self.update_total)
 
@@ -942,9 +936,9 @@ class SmetaItemDialog(QDialog):
         # Fill fields if editing
         if self.item:
             self.name_input.setText(self.item.get('name', ''))
-            self.quantity_input.setValue(float(self.item.get('quantity', 1)))
+            self.quantity_input.setText(_format_price(float(self.item.get('quantity', 1))))
             self.unit_input.setText(self.item.get('unit', ''))
-            self.price_input.setValue(float(self.item.get('unit_price', 0)))
+            self.price_input.setText(_format_price(float(self.item.get('unit_price', 0))))
             currency = self.item.get('currency', 'AZN') or 'AZN'
             self._original_price = float(self.item.get('unit_price') or 0)
             self._original_currency = currency
@@ -953,7 +947,8 @@ class SmetaItemDialog(QDialog):
             if idx >= 0:
                 self.currency_input.setCurrentIndex(idx)
             self.margin_input.setValue(float(self.item.get('margin_percent', 0)))
-            self.update_total()
+            self._sync_quantity_from_input()
+            self._sync_price_from_input()
 
         # Buttons
         button_layout = QHBoxLayout()
@@ -1005,7 +1000,10 @@ class SmetaItemDialog(QDialog):
             if product:
                 self.name_input.setText(product['mehsulun_adi'])
                 self.unit_input.setText(product.get('olcu_vahidi', '') or 'ədəd')
-                self.price_input.setValue(float(product['price']) if product.get('price') else 0)
+                self.price_input.setText(_format_price(float(product['price'])) if product.get('price') else "")
+                self._current_unit_price = float(product['price']) if product.get('price') else 0
+                self.quantity_input.setText("1")
+                self._current_quantity = 1.0
                 currency = product.get('currency', 'AZN') or 'AZN'
                 idx = self.currency_input.findText(currency)
                 if idx >= 0:
@@ -1019,8 +1017,8 @@ class SmetaItemDialog(QDialog):
 
     def update_total(self):
         """Update total price and final total with margin"""
-        quantity = self.quantity_input.value()
-        unit_price = self.price_input.value()
+        quantity = self._current_quantity
+        unit_price = self._current_unit_price
         currency = self.currency_input.currentText()
         if self._stored_unit_price_azn is not None and self._original_price == unit_price and self._original_currency == currency:
             unit_price_azn = float(self._stored_unit_price_azn)
@@ -1047,11 +1045,11 @@ class SmetaItemDialog(QDialog):
         data = {
             'product_id': product_id,
             'name': self.name_input.text().strip(),
-            'quantity': self.quantity_input.value(),
+            'quantity': self._current_quantity,
             'unit': self.unit_input.text().strip(),
-            'unit_price': self.price_input.value(),
+            'unit_price': self._current_unit_price,
             'unit_price_azn': unit_price_azn,
-            'total': self.quantity_input.value() * unit_price_azn,
+            'total': self._current_quantity * unit_price_azn,
             'currency': currency,
             'margin_percent': self.margin_input.value(),
             'is_custom': self.item.get('is_custom') if self.item else self.mode == "custom"
@@ -1064,12 +1062,36 @@ class SmetaItemDialog(QDialog):
 
         return data
 
+    def _sync_quantity_from_input(self):
+        try:
+            value = _parse_calc_text(self.quantity_input.text(), {"string": self.string_count})
+        except Exception:
+            value = None
+        if value is None:
+            self.quantity_input.setText(_format_price(self._current_quantity) if self._current_quantity else "")
+            return
+        self._current_quantity = max(0.01, value)
+        self.quantity_input.setText(_format_price(self._current_quantity))
+        self.update_total()
+
+    def _sync_price_from_input(self):
+        try:
+            value = _parse_calc_text(self.price_input.text(), {"string": self.string_count})
+        except Exception:
+            value = None
+        if value is None:
+            self.price_input.setText(_format_price(self._current_unit_price) if self._current_unit_price else "")
+            return
+        self._current_unit_price = max(0.0, value)
+        self.price_input.setText(_format_price(self._current_unit_price))
+        self.update_total()
+
     def accept(self):
         """Validate before accepting"""
         if not self.name_input.text().strip():
             QMessageBox.warning(self, "Xəbərdarlıq", "Ad mütləqdir!")
             return
-        if self.quantity_input.value() <= 0:
+        if self._current_quantity <= 0:
             QMessageBox.warning(self, "Xəbərdarlıq", "Miqdar 0-dan böyük olmalıdır!")
             return
         super().accept()
@@ -1085,6 +1107,7 @@ class TemplateItemDialog(QDialog):
         self.item = item
         self.selected_product = None
         self.currency_manager = CurrencySettingsManager(self.db)
+        self._current_default_price = 0.0
         self.init_ui()
 
     def init_ui(self):
@@ -1112,12 +1135,10 @@ class TemplateItemDialog(QDialog):
         layout.addRow("Ölçü Vahidi:", self.unit_input)
 
         # Default price
-        self.price_input = QDoubleSpinBox()
-        self.price_input.setRange(0, 999999.99)
-        self.price_input.setDecimals(2)
-        self.price_input.setSuffix("")
+        self.price_input = QLineEdit()
+        self.price_input.setPlaceholderText("Məs: 3*2+1")
         layout.addRow("Defolt Qiymət:", self.price_input)
-        _enable_calc_input(self.price_input)
+        self.price_input.editingFinished.connect(self._sync_price_from_input)
 
         # Currency
         self.currency_input = QComboBox()
@@ -1145,7 +1166,7 @@ class TemplateItemDialog(QDialog):
             self.generic_name_input.setText(self.item.get('generic_name', self.item.get('name', '')))
             self.category_input.setText(self.item.get('category', ''))
             self.unit_input.setText(self.item.get('unit', ''))
-            self.price_input.setValue(self.item.get('default_price', 0))
+            self.price_input.setText(_format_price(float(self.item.get('default_price', 0))))
             currency = self.item.get('currency', 'AZN') or 'AZN'
             idx = self.currency_input.findText(currency)
             if idx >= 0:
@@ -1153,9 +1174,8 @@ class TemplateItemDialog(QDialog):
             if self.mode == "from_db" and self.item.get('product_id'):
                 self.product_id_input.setText(self.item.get('product_id'))
 
-        self.price_input.valueChanged.connect(self.update_converted_price)
         self.currency_input.currentTextChanged.connect(self.update_converted_price)
-        self.update_converted_price()
+        self._sync_price_from_input()
 
         # Buttons
         button_layout = QHBoxLayout()
@@ -1190,7 +1210,8 @@ class TemplateItemDialog(QDialog):
                 self.generic_name_input.setText(product['mehsulun_adi'])
                 self.category_input.setText(product.get('category', ''))
                 self.unit_input.setText(product.get('olcu_vahidi', '') or 'ədəd')
-                self.price_input.setValue(float(product['price']) if product.get('price') else 0)
+                self.price_input.setText(_format_price(float(product['price'])) if product.get('price') else "")
+                self._current_default_price = float(product['price']) if product.get('price') else 0
                 currency = product.get('currency', 'AZN') or 'AZN'
                 idx = self.currency_input.findText(currency)
                 if idx >= 0:
@@ -1208,10 +1229,10 @@ class TemplateItemDialog(QDialog):
             'name': self.generic_name_input.text().strip(),
             'category': self.category_input.text().strip(),
             'unit': self.unit_input.text().strip(),
-            'default_price': self.price_input.value(),
+            'default_price': self._current_default_price,
             'currency': self.currency_input.currentText(),
             'default_price_azn': self.currency_manager.convert_to_azn(
-                self.price_input.value(),
+                self._current_default_price,
                 self.currency_input.currentText()
             ),
             'is_generic': self.mode == "generic"
@@ -1230,9 +1251,21 @@ class TemplateItemDialog(QDialog):
 
     def update_converted_price(self):
         currency = self.currency_input.currentText()
-        price = self.price_input.value()
+        price = self._current_default_price
         price_azn = self.currency_manager.convert_to_azn(price, currency)
         self.price_azn_label.setText(f"{price_azn:.2f} AZN")
+
+    def _sync_price_from_input(self):
+        try:
+            value = _parse_calc_text(self.price_input.text())
+        except Exception:
+            value = None
+        if value is None:
+            self.price_input.setText(_format_price(self._current_default_price) if self._current_default_price else "")
+            return
+        self._current_default_price = max(0.0, value)
+        self.price_input.setText(_format_price(self._current_default_price))
+        self.update_converted_price()
 
 
 class ProductSelectionDialog(QDialog):

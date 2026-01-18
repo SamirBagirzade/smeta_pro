@@ -293,13 +293,14 @@ class DatabaseManager:
             raise Exception(f"Failed to delete image: {e}")
 
     # BoQ Cloud Storage Methods
-    def save_boq_to_cloud(self, boq_name, boq_items, next_id):
+    def save_boq_to_cloud(self, boq_name, boq_items, next_id, string_count=0):
         """Save BoQ to MongoDB cloud"""
         try:
             boq_data = {
                 'name': boq_name,
                 'items': boq_items,
                 'next_id': next_id,
+                'string_count': string_count,
                 'created_at': datetime.now(timezone.utc),
                 'updated_at': datetime.now(timezone.utc)
             }
