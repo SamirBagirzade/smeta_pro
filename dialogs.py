@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout, QVBoxLayout, QLabel, QTextEdit, QDoubleSpinBox, QFileDialog,
     QScrollArea, QTableWidget, QTableWidgetItem, QHeaderView, QComboBox
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, QObject, QEvent
 from PyQt6.QtGui import QFont, QColor, QPixmap
 
 from db import DatabaseManager
@@ -40,9 +40,17 @@ def _safe_eval_expr(expr):
     return float(value)
 
 
-def _apply_calc_to_spinbox(spinbox):
-    text = spinbox.lineEdit().text().strip()
+def _apply_calc_to_spinbox(spinbox, text=None):
+    if text is None:
+        text = spinbox.lineEdit().text().strip()
     if not text.startswith("="):
+        if not text:
+            return
+        try:
+            value = float(text.replace(",", "."))
+        except Exception:
+            return
+        spinbox.setValue(value)
         return
     expr = text[1:].strip()
     if not expr:
@@ -52,6 +60,32 @@ def _apply_calc_to_spinbox(spinbox):
     except Exception:
         return
     spinbox.setValue(value)
+
+
+class _CalcFilter(QObject):
+    def __init__(self, spinbox):
+        super().__init__(spinbox)
+        self.spinbox = spinbox
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.KeyPress and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            text = obj.text().strip()
+            if text.startswith("="):
+                _apply_calc_to_spinbox(self.spinbox, text)
+                return True
+        if event.type() == QEvent.Type.FocusOut:
+            text = obj.text().strip()
+            if text.startswith("="):
+                _apply_calc_to_spinbox(self.spinbox, text)
+        return super().eventFilter(obj, event)
+
+
+def _enable_calc_input(spinbox):
+    line_edit = spinbox.lineEdit()
+    line_edit.setValidator(None)
+    calc_filter = _CalcFilter(spinbox)
+    line_edit.installEventFilter(calc_filter)
+    spinbox._calc_filter = calc_filter
 
 
 class DatabaseConfigDialog(QDialog):
@@ -481,9 +515,7 @@ class ProductDialog(QDialog):
         self.price_input.setDecimals(2)
         self.price_input.setSuffix("")
         layout.addRow("Qiymət:", self.price_input)
-        self.price_input.lineEdit().editingFinished.connect(
-            lambda: _apply_calc_to_spinbox(self.price_input)
-        )
+        _enable_calc_input(self.price_input)
 
         # Currency
         self.currency_input = QComboBox()
@@ -849,9 +881,8 @@ class SmetaItemDialog(QDialog):
         if self.mode == "add_from_db":
             self.price_input.setReadOnly(True)
         layout.addRow("Vahid Qiymət:", self.price_input)
-        self.price_input.lineEdit().editingFinished.connect(
-            lambda: _apply_calc_to_spinbox(self.price_input)
-        )
+        if self.mode != "add_from_db":
+            _enable_calc_input(self.price_input)
 
         # Currency
         self.currency_input = QComboBox()
@@ -1086,9 +1117,7 @@ class TemplateItemDialog(QDialog):
         self.price_input.setDecimals(2)
         self.price_input.setSuffix("")
         layout.addRow("Defolt Qiymət:", self.price_input)
-        self.price_input.lineEdit().editingFinished.connect(
-            lambda: _apply_calc_to_spinbox(self.price_input)
-        )
+        _enable_calc_input(self.price_input)
 
         # Currency
         self.currency_input = QComboBox()
