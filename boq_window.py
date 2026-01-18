@@ -861,7 +861,7 @@ class SmetaWindow(QMainWindow):
 
             # Margin total label
             margin_label_cell = ws[f'H{total_row}']
-            margin_label_cell.value = "Marja:"
+            margin_label_cell.value = "TOPLAM:"
             margin_label_cell.fill = margin_fill
             margin_label_cell.font = total_font
             margin_label_cell.alignment = Alignment(horizontal="center", vertical="center")
@@ -885,7 +885,7 @@ class SmetaWindow(QMainWindow):
             margin_row = total_row + 1
             ws.merge_cells(f'A{margin_row}:F{margin_row}')
             margin_summary_cell = ws[f'A{margin_row}']
-            margin_summary_cell.value = "ÜMUMİ MARJA:"
+            margin_summary_cell.value = "MARJA:"
             margin_summary_cell.fill = margin_fill
             margin_summary_cell.font = total_font
             margin_summary_cell.alignment = Alignment(horizontal="right", vertical="center")
