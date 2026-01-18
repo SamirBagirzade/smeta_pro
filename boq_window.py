@@ -759,13 +759,10 @@ class SmetaWindow(QMainWindow):
                 cell.border = border
 
             # Add data
-            cost_total = 0
-            margin_total = 0
-            final_total = 0
-            for row_num, item in enumerate(self.boq_items, 4):
+            data_start_row = 4
+            data_end_row = data_start_row + len(self.boq_items) - 1
+            for row_num, item in enumerate(self.boq_items, data_start_row):
                 margin_pct = item.get('margin_percent', 0)
-                item_cost = item['total']
-                item_final = item_cost * (1 + margin_pct / 100)
 
                 # Column 1: №
                 ws.cell(row=row_num, column=1, value=item['id']).border = border
@@ -780,11 +777,11 @@ class SmetaWindow(QMainWindow):
                 # Column 6: Vahid Qiymət
                 ws.cell(row=row_num, column=6, value=item['unit_price']).border = border
                 # Column 7: Cəmi (cost)
-                ws.cell(row=row_num, column=7, value=item_cost).border = border
+                ws.cell(row=row_num, column=7, value=f"=D{row_num}*F{row_num}").border = border
                 # Column 8: Marja %
                 ws.cell(row=row_num, column=8, value=margin_pct).border = border
                 # Column 9: Yekun (with margin)
-                ws.cell(row=row_num, column=9, value=item_final).border = border
+                ws.cell(row=row_num, column=9, value=f"=G{row_num}*(1+H{row_num}/100)").border = border
                 # Column 10: Mənbə
                 ws.cell(row=row_num, column=10, value=item.get('source', '') or 'N/A').border = border
                 # Column 11: Qeyd
@@ -800,10 +797,6 @@ class SmetaWindow(QMainWindow):
                 ws.cell(row=row_num, column=8).number_format = '0.0'
                 ws.cell(row=row_num, column=9).number_format = '0.00'
 
-                cost_total += item_cost
-                margin_total += (item_final - item_cost)
-                final_total += item_final
-
             # Add total row
             total_row = len(self.boq_items) + 5
 
@@ -818,7 +811,7 @@ class SmetaWindow(QMainWindow):
 
             # Cost total value
             cost_value_cell = ws[f'G{total_row}']
-            cost_value_cell.value = cost_total
+            cost_value_cell.value = f"=SUM(G{data_start_row}:G{data_end_row})"
             cost_value_cell.fill = header_fill
             cost_value_cell.font = total_font
             cost_value_cell.alignment = Alignment(horizontal="center", vertical="center")
@@ -835,7 +828,7 @@ class SmetaWindow(QMainWindow):
 
             # Final total value
             final_value_cell = ws[f'I{total_row}']
-            final_value_cell.value = final_total
+            final_value_cell.value = f"=SUM(I{data_start_row}:I{data_end_row})"
             final_value_cell.fill = total_fill
             final_value_cell.font = total_font
             final_value_cell.alignment = Alignment(horizontal="center", vertical="center")
@@ -858,7 +851,7 @@ class SmetaWindow(QMainWindow):
             margin_summary_cell.border = border
 
             margin_summary_value = ws[f'G{margin_row}']
-            margin_summary_value.value = margin_total
+            margin_summary_value.value = f"=I{total_row}-G{total_row}"
             margin_summary_value.fill = margin_fill
             margin_summary_value.font = total_font
             margin_summary_value.alignment = Alignment(horizontal="center", vertical="center")
