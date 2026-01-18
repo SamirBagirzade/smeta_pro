@@ -25,6 +25,7 @@ class SmetaWindow(QMainWindow):
         self.boq_items = []  # List to store Smeta items
         self.next_id = 1
         self.boq_name = "Smeta 1"  # Default name
+        self._updating_table = False
         self.init_ui()
 
     def init_ui(self):
@@ -88,6 +89,7 @@ class SmetaWindow(QMainWindow):
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSortingEnabled(True)  # Enable column sorting
+        self.table.itemChanged.connect(self.on_table_item_changed)
 
         # Resize columns
         header = self.table.horizontalHeader()
@@ -475,6 +477,7 @@ class SmetaWindow(QMainWindow):
 
     def refresh_table(self):
         """Refresh the Smeta table"""
+        self._updating_table = True
         self.table.setRowCount(0)
 
         for item in self.boq_items:
@@ -487,32 +490,93 @@ class SmetaWindow(QMainWindow):
             final_total = cost_total * (1 + margin_pct / 100)
 
             # Column 0: №
-            self.table.setItem(row_position, 0, QTableWidgetItem(str(item['id'])))
+            id_item = QTableWidgetItem(str(item['id']))
+            id_item.setFlags(id_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.table.setItem(row_position, 0, id_item)
             # Column 1: Adı
-            self.table.setItem(row_position, 1, QTableWidgetItem(item['name']))
+            name_item = QTableWidgetItem(item['name'])
+            name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.table.setItem(row_position, 1, name_item)
             # Column 2: Kateqoriya
-            self.table.setItem(row_position, 2, QTableWidgetItem(item.get('category', '') or 'N/A'))
+            category_item = QTableWidgetItem(item.get('category', '') or 'N/A')
+            category_item.setFlags(category_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.table.setItem(row_position, 2, category_item)
             # Column 3: Miqdar
-            self.table.setItem(row_position, 3, QTableWidgetItem(f"{item['quantity']:.2f}"))
+            quantity_item = QTableWidgetItem(f"{item['quantity']:.2f}")
+            quantity_item.setFlags(quantity_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.table.setItem(row_position, 3, quantity_item)
             # Column 4: Ölçü Vahidi
-            self.table.setItem(row_position, 4, QTableWidgetItem(item['unit']))
+            unit_item = QTableWidgetItem(item['unit'])
+            unit_item.setFlags(unit_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.table.setItem(row_position, 4, unit_item)
             # Column 5: Vahid Qiymət
-            self.table.setItem(row_position, 5, QTableWidgetItem(f"{item['unit_price']:.2f}"))
+            price_item = QTableWidgetItem(f"{item['unit_price']:.2f}")
+            price_item.setFlags(price_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.table.setItem(row_position, 5, price_item)
             # Column 6: Cəmi (cost)
-            self.table.setItem(row_position, 6, QTableWidgetItem(f"{cost_total:.2f}"))
+            cost_item = QTableWidgetItem(f"{cost_total:.2f}")
+            cost_item.setFlags(cost_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.table.setItem(row_position, 6, cost_item)
             # Column 7: Marja %
-            self.table.setItem(row_position, 7, QTableWidgetItem(f"{margin_pct:.1f}%"))
+            margin_item = QTableWidgetItem(f"{margin_pct:.1f}%")
+            margin_item.setFlags(margin_item.flags() | Qt.ItemFlag.ItemIsEditable)
+            self.table.setItem(row_position, 7, margin_item)
             # Column 8: Yekun (with margin)
-            self.table.setItem(row_position, 8, QTableWidgetItem(f"{final_total:.2f}"))
+            final_item = QTableWidgetItem(f"{final_total:.2f}")
+            final_item.setFlags(final_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.table.setItem(row_position, 8, final_item)
             # Column 9: Mənbə
-            self.table.setItem(row_position, 9, QTableWidgetItem(item.get('source', '') or 'N/A'))
+            source_item = QTableWidgetItem(item.get('source', '') or 'N/A')
+            source_item.setFlags(source_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.table.setItem(row_position, 9, source_item)
             # Column 10: Qeyd
-            self.table.setItem(row_position, 10, QTableWidgetItem(item.get('note', '') or 'N/A'))
+            note_item = QTableWidgetItem(item.get('note', '') or 'N/A')
+            note_item.setFlags(note_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.table.setItem(row_position, 10, note_item)
             # Column 11: Növ
             item_type = "Xüsusi" if item.get('is_custom') else "DB"
-            self.table.setItem(row_position, 11, QTableWidgetItem(item_type))
+            type_item = QTableWidgetItem(item_type)
+            type_item.setFlags(type_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.table.setItem(row_position, 11, type_item)
 
         # Update summary
+        self.update_summary()
+        self._updating_table = False
+
+    def on_table_item_changed(self, item):
+        """Handle inline edits in the Smeta table."""
+        if self._updating_table:
+            return
+        if item.column() != 7:
+            return
+
+        row = item.row()
+        if row < 0 or row >= len(self.boq_items):
+            return
+
+        text = item.text().strip().replace('%', '')
+        text = text.replace(',', '.')
+        if not text:
+            margin_pct = 0.0
+        else:
+            try:
+                margin_pct = float(text)
+            except ValueError:
+                margin_pct = self.boq_items[row].get('margin_percent', 0)
+
+        margin_pct = max(0.0, min(100.0, margin_pct))
+        self.boq_items[row]['margin_percent'] = margin_pct
+
+        cost_total = self.boq_items[row].get('total', 0)
+        final_total = cost_total * (1 + margin_pct / 100)
+
+        self._updating_table = True
+        item.setText(f"{margin_pct:.1f}%")
+        final_item = self.table.item(row, 8)
+        if final_item:
+            final_item.setText(f"{final_total:.2f}")
+        self._updating_table = False
+
         self.update_summary()
 
     def update_summary(self):
