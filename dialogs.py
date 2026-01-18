@@ -1108,6 +1108,9 @@ class TemplateItemDialog(QDialog):
         self.selected_product = None
         self.currency_manager = CurrencySettingsManager(self.db)
         self._current_default_price = 0.0
+        self._price_expr = ""
+        self._amount_expr = ""
+        self._price_expr_has_names = False
         self.init_ui()
 
     def init_ui(self):
@@ -1123,6 +1126,19 @@ class TemplateItemDialog(QDialog):
         self.generic_name_input = QLineEdit()
         self.generic_name_input.setPlaceholderText("Məs: AC açar, Kabel 2.5mm², Lampa")
         layout.addRow("Generik Ad:", self.generic_name_input)
+
+        # Variable name
+        self.var_name_input = QLineEdit()
+        self.var_name_input.setPlaceholderText("Məs: kabel_sayi (opsional)")
+        layout.addRow("Dəyişən Adı:", self.var_name_input)
+
+        # Amount (quantity expression)
+        self.amount_input = QLineEdit()
+        self.amount_input.setPlaceholderText("Məs: 2*string")
+        self.amount_input.setText("1")
+        self._amount_expr = "1"
+        self.amount_input.editingFinished.connect(self._sync_amount_from_input)
+        layout.addRow("Miqdar:", self.amount_input)
 
         # Category (for filtering when loading)
         self.category_input = QLineEdit()
@@ -1164,15 +1180,30 @@ class TemplateItemDialog(QDialog):
         # Fill if editing
         if self.item:
             self.generic_name_input.setText(self.item.get('generic_name', self.item.get('name', '')))
+            self.var_name_input.setText(self.item.get('var_name', '') or '')
+            amount_expr = self.item.get('amount_expr')
+            if amount_expr is None:
+                amount_expr = self.item.get('amount', 1)
+            self.amount_input.setText(str(amount_expr))
+            self._amount_expr = str(amount_expr)
             self.category_input.setText(self.item.get('category', ''))
             self.unit_input.setText(self.item.get('unit', ''))
-            self.price_input.setText(_format_price(float(self.item.get('default_price', 0))))
+            price_expr = self.item.get('price_expr')
+            if price_expr:
+                self.price_input.setText(price_expr)
+            elif self.mode == "from_db" and self.item.get('product_id'):
+                self.price_input.setText("")
+                self._current_default_price = 0.0
+            else:
+                self.price_input.setText(_format_price(float(self.item.get('default_price', 0))))
             currency = self.item.get('currency', 'AZN') or 'AZN'
             idx = self.currency_input.findText(currency)
             if idx >= 0:
                 self.currency_input.setCurrentIndex(idx)
             if self.mode == "from_db" and self.item.get('product_id'):
                 self.product_id_input.setText(self.item.get('product_id'))
+        elif self.mode == "from_db":
+            self.price_input.setPlaceholderText("Boş buraxın (DB qiyməti)")
 
         self.currency_input.currentTextChanged.connect(self.update_converted_price)
         self._sync_price_from_input()
@@ -1224,16 +1255,30 @@ class TemplateItemDialog(QDialog):
 
     def get_data(self):
         """Get item data"""
+        self._amount_expr = (self.amount_input.text() or "").strip() or "1"
+        self._price_expr = (self.price_input.text() or "").strip()
+        try:
+            node = ast.parse(self._price_expr, mode="eval") if self._price_expr else None
+            self._price_expr_has_names = bool(
+                node and any(isinstance(n, ast.Name) for n in ast.walk(node))
+            )
+        except Exception:
+            self._price_expr_has_names = False
         data = {
             'generic_name': self.generic_name_input.text().strip(),
             'name': self.generic_name_input.text().strip(),
+            'var_name': self.var_name_input.text().strip(),
             'category': self.category_input.text().strip(),
             'unit': self.unit_input.text().strip(),
+            'amount_expr': self._amount_expr,
+            'price_expr': self._price_expr,
             'default_price': self._current_default_price,
             'currency': self.currency_input.currentText(),
-            'default_price_azn': self.currency_manager.convert_to_azn(
-                self._current_default_price,
-                self.currency_input.currentText()
+            'default_price_azn': (
+                None if self._price_expr_has_names else self.currency_manager.convert_to_azn(
+                    self._current_default_price,
+                    self.currency_input.currentText()
+                )
             ),
             'is_generic': self.mode == "generic"
         }
@@ -1252,20 +1297,52 @@ class TemplateItemDialog(QDialog):
     def update_converted_price(self):
         currency = self.currency_input.currentText()
         price = self._current_default_price
+        if self._price_expr_has_names:
+            self.price_azn_label.setText("Formula")
+            return
+        if price <= 0:
+            if self.mode == "from_db" and not self._price_expr:
+                self.price_azn_label.setText("DB qiyməti")
+            else:
+                self.price_azn_label.setText("0.00 AZN")
+            return
         price_azn = self.currency_manager.convert_to_azn(price, currency)
         self.price_azn_label.setText(f"{price_azn:.2f} AZN")
 
     def _sync_price_from_input(self):
+        expr = (self.price_input.text() or "").strip()
+        self._price_expr = expr
+        if not expr:
+            self._current_default_price = 0.0
+            self.update_converted_price()
+            return
+        names = set()
         try:
-            value = _parse_calc_text(self.price_input.text())
+            node = ast.parse(expr, mode="eval")
+            names = {n.id for n in ast.walk(node) if isinstance(n, ast.Name)}
+        except Exception:
+            names = set()
+        self._price_expr_has_names = bool(names)
+        variables = {name: 1 for name in names}
+        try:
+            value = _parse_calc_text(expr, variables)
         except Exception:
             value = None
         if value is None:
-            self.price_input.setText(_format_price(self._current_default_price) if self._current_default_price else "")
+            self.update_converted_price()
             return
         self._current_default_price = max(0.0, value)
-        self.price_input.setText(_format_price(self._current_default_price))
+        if not names:
+            self.price_input.setText(_format_price(self._current_default_price))
         self.update_converted_price()
+
+    def _sync_amount_from_input(self):
+        expr = (self.amount_input.text() or "").strip()
+        if not expr:
+            self._amount_expr = "1"
+            self.amount_input.setText("1")
+            return
+        self._amount_expr = expr
 
 
 class ProductSelectionDialog(QDialog):

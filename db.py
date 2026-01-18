@@ -420,7 +420,10 @@ class DatabaseManager:
                     'source': item.get('source', ''),
                     'note': item.get('note', ''),
                     'is_custom': item.get('is_custom', False),
-                    'product_id': item.get('product_id')
+                    'product_id': item.get('product_id'),
+                    'var_name': item.get('var_name', ''),
+                    'amount_expr': item.get('amount_expr', '1'),
+                    'price_expr': item.get('price_expr', '')
                 }
                 template_items.append(template_item)
 

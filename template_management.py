@@ -5,8 +5,24 @@ from PyQt6.QtWidgets import (
     QHeaderView, QPushButton, QLineEdit, QMessageBox
 )
 from PyQt6.QtCore import Qt
+import ast
+import re
 
-from dialogs import TemplateItemDialog, ProductSelectionDialog
+from dialogs import TemplateItemDialog, ProductSelectionDialog, _parse_calc_text
+
+
+def _extract_expr_names(expr):
+    if not expr:
+        return set()
+    try:
+        node = ast.parse(expr, mode="eval")
+    except Exception:
+        return set()
+    return {n.id for n in ast.walk(node) if isinstance(n, ast.Name)}
+
+
+def _is_valid_variable_name(name):
+    return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name or ""))
 
 
 class TemplateManagementWindow(QDialog):
@@ -85,8 +101,10 @@ class TemplateManagementWindow(QDialog):
         right_panel.addWidget(items_label)
 
         self.items_table = QTableWidget()
-        self.items_table.setColumnCount(4)
-        self.items_table.setHorizontalHeaderLabels(["Generik Ad", "Ölçü Vahidi", "Defolt Qiymət", "Tip"])
+        self.items_table.setColumnCount(6)
+        self.items_table.setHorizontalHeaderLabels(
+            ["Generik Ad", "Dəyişən", "Miqdar", "Ölçü Vahidi", "Defolt Qiymət", "Tip"]
+        )
         self.items_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.items_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
 
@@ -95,6 +113,8 @@ class TemplateManagementWindow(QDialog):
         items_header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         items_header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         items_header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        items_header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        items_header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
 
         right_panel.addWidget(self.items_table)
 
@@ -198,21 +218,33 @@ class TemplateManagementWindow(QDialog):
             self.items_table.insertRow(row)
 
             self.items_table.setItem(row, 0, QTableWidgetItem(item.get('generic_name', item.get('name', ''))))
-            self.items_table.setItem(row, 1, QTableWidgetItem(item.get('unit', '')))
+            self.items_table.setItem(row, 1, QTableWidgetItem(item.get('var_name', '') or ''))
+            amount_expr = item.get('amount_expr')
+            if amount_expr is None:
+                amount_expr = item.get('amount', 1)
+            self.items_table.setItem(row, 2, QTableWidgetItem(str(amount_expr)))
+            self.items_table.setItem(row, 3, QTableWidgetItem(item.get('unit', '')))
+
+            price_expr = item.get('price_expr', '')
             default_price = item.get('default_price', item.get('unit_price', 0))
             currency = item.get('currency', 'AZN') or 'AZN'
             default_price_azn = item.get('default_price_azn')
-            if default_price_azn is None:
-                default_price_azn = default_price if currency == 'AZN' else 0
-            if currency == "AZN":
-                price_text = f"{default_price:.2f} AZN"
+            if price_expr:
+                price_text = price_expr
+            elif item.get('product_id'):
+                price_text = "DB qiyməti"
             else:
-                price_text = f"AZN {default_price_azn:.2f} ({default_price:.2f} {currency})"
-            self.items_table.setItem(row, 2, QTableWidgetItem(price_text))
+                if default_price_azn is None:
+                    default_price_azn = default_price if currency == 'AZN' else 0
+                if currency == "AZN":
+                    price_text = f"{default_price:.2f} AZN"
+                else:
+                    price_text = f"AZN {default_price_azn:.2f} ({default_price:.2f} {currency})"
+            self.items_table.setItem(row, 4, QTableWidgetItem(price_text))
 
             # Type: Generic or DB-linked
             item_type = "DB" if item.get('product_id') else "Generik"
-            self.items_table.setItem(row, 3, QTableWidgetItem(item_type))
+            self.items_table.setItem(row, 5, QTableWidgetItem(item_type))
 
     def create_new_template(self):
         """Create a new empty template"""
@@ -271,6 +303,9 @@ class TemplateManagementWindow(QDialog):
             item_data = {
                 'generic_name': product.get('mehsulun_adi', ''),
                 'name': product.get('mehsulun_adi', ''),
+                'var_name': '',
+                'amount_expr': '1',
+                'price_expr': '',
                 'category': product.get('category', ''),
                 'unit': product.get('olcu_vahidi', '') or 'ədəd',
                 'default_price': unit_price,
@@ -319,12 +354,32 @@ class TemplateManagementWindow(QDialog):
             return
 
         try:
+            used_vars = {}
+            for item in self.template_items:
+                var_name = (item.get('var_name') or '').strip()
+                if not var_name:
+                    continue
+                if var_name.lower() == "string":
+                    QMessageBox.warning(self, "Xəbərdarlıq", "Dəyişən adı 'string' ola bilməz!")
+                    return
+                if not _is_valid_variable_name(var_name):
+                    QMessageBox.warning(self, "Xəbərdarlıq", f"Yanlış dəyişən adı: {var_name}")
+                    return
+                key = var_name.lower()
+                if key in used_vars:
+                    QMessageBox.warning(self, "Xəbərdarlıq", f"Təkrarlanan dəyişən adı: {var_name}")
+                    return
+                used_vars[key] = True
+
             # Convert items format for saving
             items_to_save = []
             for item in self.template_items:
                 items_to_save.append({
                     'generic_name': item.get('generic_name', ''),
                     'name': item.get('name', item.get('generic_name', '')),
+                    'var_name': item.get('var_name', ''),
+                    'amount_expr': item.get('amount_expr', '1'),
+                    'price_expr': item.get('price_expr', ''),
                     'unit': item.get('unit', ''),
                     'default_price': item.get('default_price', 0),
                     'currency': item.get('currency', 'AZN') or 'AZN',
@@ -366,32 +421,99 @@ class TemplateManagementWindow(QDialog):
             self.boq_window.boq_items = []
             self.boq_window.next_id = 1
 
+        variables = {"string": int(self.boq_window.string_count or 0)}
+        resolved = {}
+        pending = list(enumerate(self.template_items))
+        errors = []
+        progress = True
+        while pending and progress:
+            progress = False
+            next_pending = []
+            for idx, item in pending:
+                amount_expr = item.get('amount_expr')
+                if amount_expr is None:
+                    amount_expr = item.get('amount', 1)
+                amount_expr = str(amount_expr).strip() if amount_expr is not None else "1"
+                names = _extract_expr_names(amount_expr)
+                if names - set(variables.keys()):
+                    next_pending.append((idx, item))
+                    continue
+                amount_value = _parse_calc_text(amount_expr, variables)
+                if amount_value is None:
+                    label = item.get('generic_name', item.get('name', ''))
+                    errors.append(f"{label}: miqdar ifadəsi səhvdir")
+                    amount_value = 1
+                amount_value = max(0.01, float(amount_value))
+                var_name = (item.get('var_name') or '').strip()
+                if var_name and var_name.lower() != "string":
+                    variables[var_name] = amount_value
+                resolved[idx] = {'amount': amount_value}
+                progress = True
+            pending = next_pending
+
+        for idx, item in pending:
+            amount_expr = item.get('amount_expr')
+            if amount_expr is None:
+                amount_expr = item.get('amount', 1)
+            amount_expr = str(amount_expr).strip() if amount_expr is not None else "1"
+            missing = _extract_expr_names(amount_expr) - set(variables.keys())
+            label = item.get('generic_name', item.get('name', ''))
+            if missing:
+                errors.append(f"{label}: tapılmayan dəyişənlər: {', '.join(sorted(missing))}")
+            resolved[idx] = {'amount': 1.0}
+
+        for idx, item in enumerate(self.template_items):
+            price_expr = (item.get('price_expr') or '').strip()
+            price_value = None
+            if price_expr:
+                names = _extract_expr_names(price_expr)
+                missing = names - set(variables.keys())
+                if missing:
+                    label = item.get('generic_name', item.get('name', ''))
+                    errors.append(
+                        f"{label}: qiymət ifadəsində dəyişən tapılmadı: {', '.join(sorted(missing))}"
+                    )
+                else:
+                    price_value = _parse_calc_text(price_expr, variables)
+                    if price_value is None:
+                        label = item.get('generic_name', item.get('name', ''))
+                        errors.append(f"{label}: qiymət ifadəsi səhvdir")
+            resolved[idx]['price'] = price_value
+
         # Process each template item
         items_added = 0
-        for template_item in self.template_items:
+        for idx, template_item in enumerate(self.template_items):
+            amount_value = resolved.get(idx, {}).get('amount', 1.0)
+            price_override = resolved.get(idx, {}).get('price')
             if template_item.get('is_generic') or not template_item.get('product_id'):
                 # Generic item - show product selection dialog
                 selected_product = self.select_product_for_generic(template_item)
                 if selected_product:
-                    new_item = self.create_boq_item_from_selection(template_item, selected_product)
+                    new_item = self.create_boq_item_from_selection(
+                        template_item,
+                        selected_product,
+                        amount_value=amount_value,
+                        price_override=price_override,
+                    )
                     self.boq_window.boq_items.append(new_item)
                     self.boq_window.next_id += 1
                     items_added += 1
                 else:
                     currency = template_item.get('currency', 'AZN') or 'AZN'
-                    unit_price = template_item.get('default_price', 0)
+                    unit_price = price_override if price_override is not None else template_item.get('default_price', 0)
                     unit_price_azn = template_item.get('default_price_azn')
                     if unit_price_azn is None:
                         unit_price_azn = self.boq_window.currency_manager.convert_to_azn(unit_price, currency)
+                    total = amount_value * float(unit_price_azn)
                     new_item = {
                         'id': self.boq_window.next_id,
                         'name': template_item.get('generic_name', '') or template_item.get('name', ''),
-                        'quantity': 1,
+                        'quantity': amount_value,
                         'unit': template_item.get('unit', 'ədəd'),
                         'unit_price': unit_price,
                         'currency': currency,
                         'unit_price_azn': unit_price_azn,
-                        'total': float(unit_price_azn),
+                        'total': total,
                         'margin_percent': 0,
                         'category': template_item.get('category', ''),
                         'source': '',
@@ -407,19 +529,23 @@ class TemplateManagementWindow(QDialog):
                 product = self.db.read_product(template_item.get('product_id'))
                 if product:
                     currency = product.get('currency', 'AZN') or 'AZN'
-                    unit_price = float(product['price']) if product.get('price') else 0
+                    if price_override is not None:
+                        unit_price = float(price_override)
+                    else:
+                        unit_price = float(product['price']) if product.get('price') else 0
                     unit_price_azn = product.get('price_azn')
                     if unit_price_azn is None:
                         unit_price_azn = self.boq_window.currency_manager.convert_to_azn(unit_price, currency)
+                    total = amount_value * float(unit_price_azn)
                     new_item = {
                         'id': self.boq_window.next_id,
                         'name': product['mehsulun_adi'],
-                        'quantity': 1,
+                        'quantity': amount_value,
                         'unit': product.get('olcu_vahidi', '') or 'ədəd',
                         'unit_price': unit_price,
                         'currency': currency,
                         'unit_price_azn': unit_price_azn,
-                        'total': float(unit_price_azn),
+                        'total': total,
                         'margin_percent': 0,
                         'category': product.get('category', ''),
                         'source': product.get('mehsul_menbeyi', ''),
@@ -432,6 +558,8 @@ class TemplateManagementWindow(QDialog):
                     items_added += 1
 
         self.boq_window.refresh_table()
+        if errors:
+            QMessageBox.warning(self, "Xəbərdarlıq", "Bəzi ifadələr qiymətləndirilə bilmədi:\n" + "\n".join(errors[:8]))
         QMessageBox.information(self, "Uğurlu", f"{items_added} qeyd Smeta-a əlavə edildi!")
         self.accept()
 
@@ -447,22 +575,25 @@ class TemplateManagementWindow(QDialog):
             return dialog.get_selected_product()
         return None
 
-    def create_boq_item_from_selection(self, template_item, product):
+    def create_boq_item_from_selection(self, template_item, product, amount_value=1.0, price_override=None):
         """Create a Smeta item from template item and selected product"""
         currency = product.get('currency', template_item.get('currency', 'AZN')) or 'AZN'
-        unit_price = float(product['price']) if product.get('price') else template_item.get('default_price', 0)
+        if price_override is not None:
+            unit_price = float(price_override)
+        else:
+            unit_price = float(product['price']) if product.get('price') else template_item.get('default_price', 0)
         unit_price_azn = product.get('price_azn', template_item.get('default_price_azn'))
         if unit_price_azn is None:
             unit_price_azn = self.boq_window.currency_manager.convert_to_azn(unit_price, currency)
         return {
             'id': self.boq_window.next_id,
             'name': product['mehsulun_adi'],
-            'quantity': 1,
+            'quantity': amount_value,
             'unit': product.get('olcu_vahidi', '') or template_item.get('unit', 'ədəd'),
             'unit_price': unit_price,
             'currency': currency,
             'unit_price_azn': unit_price_azn,
-            'total': float(unit_price_azn),
+            'total': float(unit_price_azn) * amount_value,
             'margin_percent': 0,
             'category': product.get('category', ''),
             'source': product.get('mehsul_menbeyi', ''),
