@@ -1448,6 +1448,7 @@ class SmetaWindow(QMainWindow):
             from PyQt6.QtWidgets import QFileDialog
             from openpyxl import Workbook
             from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+            from openpyxl.utils import get_column_letter
 
             # Ask user to select multiple Smeta files
             file_paths, _ = QFileDialog.getOpenFileNames(
@@ -1496,7 +1497,7 @@ class SmetaWindow(QMainWindow):
                             'category': item.get('category', ''),
                             'source': item.get('source', ''),
                             'note': item.get('note', ''),
-                            'quantities': {}
+                            'boq_data': {}
                         }
 
             # Fill quantities for each Smeta
@@ -1504,13 +1505,19 @@ class SmetaWindow(QMainWindow):
                 boq_name = boq['name']
                 for item in boq['items']:
                     item_key = item['name']
-                    all_items_dict[item_key]['quantities'][boq_name] = item.get('quantity', 0)
+                    all_items_dict[item_key]['boq_data'][boq_name] = {
+                        'quantity': item.get('quantity', 0),
+                        'margin_percent': item.get('margin_percent', 0)
+                    }
 
             # Ensure all items have entries for all Smetas (fill with 0 if missing)
             for item_data in all_items_dict.values():
                 for boq in boqs:
-                    if boq['name'] not in item_data['quantities']:
-                        item_data['quantities'][boq['name']] = 0
+                    if boq['name'] not in item_data['boq_data']:
+                        item_data['boq_data'][boq['name']] = {
+                            'quantity': 0,
+                            'margin_percent': 0
+                        }
 
             # Ask user for output file
             output_path, _ = QFileDialog.getSaveFileName(
@@ -1545,7 +1552,8 @@ class SmetaWindow(QMainWindow):
 
             # Title
             num_boqs = len(boqs)
-            ws.merge_cells(f'A1:{chr(65 + 5 + num_boqs)}1')
+            last_col_idx = 5 + (2 * num_boqs) + 2
+            ws.merge_cells(f'A1:{get_column_letter(last_col_idx)}1')
             ws['A1'] = "BİRLƏŞDİRİLMİŞ BILL OF QUANTITIES (BOQ)"
             ws['A1'].font = Font(bold=True, size=16, color="2196F3")
             ws['A1'].alignment = Alignment(horizontal="center", vertical="center")
@@ -1555,8 +1563,9 @@ class SmetaWindow(QMainWindow):
             headers = ["№", "Adı", "Kateqoriya", "Ölçü Vahidi", "Vahid Qiymət (AZN)"]
             for boq in boqs:
                 headers.append(f"{boq['name']}\n(Miqdar)")
+                headers.append(f"{boq['name']}\n(Yekun AZN)")
             headers.append("Cəmi\nMiqdar")
-            headers.append("Cəmi\nQiymət (AZN)")
+            headers.append("Cəmi\nYekun (AZN)")
 
             col_num = 1
             for header in headers:
@@ -1570,6 +1579,15 @@ class SmetaWindow(QMainWindow):
 
             # Data rows
             row_num = 4
+            qty_cols = []
+            final_cols = []
+            base_col = 6
+            for i in range(num_boqs):
+                qty_cols.append(base_col + (i * 2))
+                final_cols.append(base_col + (i * 2) + 1)
+            total_qty_col_idx = base_col + (num_boqs * 2)
+            total_final_col_idx = total_qty_col_idx + 1
+
             for idx, (item_name, item_data) in enumerate(sorted(all_items_dict.items()), 1):
                 ws.cell(row=row_num, column=1, value=idx).border = border
                 ws.cell(row=row_num, column=2, value=item_data['name']).border = border
@@ -1578,39 +1596,48 @@ class SmetaWindow(QMainWindow):
                 ws.cell(row=row_num, column=5, value=item_data['unit_price']).border = border
                 ws.cell(row=row_num, column=5).number_format = '0.00'
 
-                # Quantities for each Smeta
+                # Quantities and margin totals for each Smeta
                 col = 6
-                first_qty_col = chr(65 + 5)  # F
+                unit_price_value = float(item_data.get('unit_price') or 0)
                 for boq in boqs:
-                    qty = item_data['quantities'][boq['name']]
+                    boq_entry = item_data['boq_data'][boq['name']]
+                    qty = boq_entry['quantity']
+                    margin_pct = boq_entry['margin_percent']
+                    try:
+                        margin_pct_value = float(margin_pct)
+                    except (TypeError, ValueError):
+                        margin_pct_value = 0.0
+                    final_total = unit_price_value * float(qty or 0) * (1 + margin_pct_value / 100)
+
                     ws.cell(row=row_num, column=col, value=qty).border = border
                     ws.cell(row=row_num, column=col).number_format = '0.00'
                     col += 1
 
-                last_qty_col = chr(65 + col - 2)  # Last Smeta column
+                    ws.cell(row=row_num, column=col, value=final_total).border = border
+                    ws.cell(row=row_num, column=col).number_format = '#,##0.00'
+                    col += 1
 
-                # Total quantity column (SUM formula)
-                total_qty_col = chr(65 + col - 1)
-                total_qty_cell = ws.cell(row=row_num, column=col)
-                total_qty_cell.value = f"=SUM({first_qty_col}{row_num}:{last_qty_col}{row_num})"
+                # Total quantity column (SUM formula of qty columns)
+                qty_sum_cells = ",".join([f"{get_column_letter(c)}{row_num}" for c in qty_cols])
+                total_qty_cell = ws.cell(row=row_num, column=total_qty_col_idx)
+                total_qty_cell.value = f"=SUM({qty_sum_cells})"
                 total_qty_cell.border = border
                 total_qty_cell.number_format = '0.00'
                 total_qty_cell.font = Font(bold=True)
-                col += 1
 
-                # Total price column (Total Quantity * Unit Price)
-                price_col = 'E'  # Unit price column
-                total_price_cell = ws.cell(row=row_num, column=col)
-                total_price_cell.value = f"={total_qty_col}{row_num}*{price_col}{row_num}"
-                total_price_cell.border = border
-                total_price_cell.number_format = '#,##0.00'
-                total_price_cell.font = Font(bold=True)
+                # Total final price column (SUM of margin totals)
+                final_sum_cells = ",".join([f"{get_column_letter(c)}{row_num}" for c in final_cols])
+                total_final_cell = ws.cell(row=row_num, column=total_final_col_idx)
+                total_final_cell.value = f"=SUM({final_sum_cells})"
+                total_final_cell.border = border
+                total_final_cell.number_format = '#,##0.00'
+                total_final_cell.font = Font(bold=True)
 
                 row_num += 1
 
             # Add grand total row
             total_row = row_num + 1
-            ws.merge_cells(f'A{total_row}:{chr(65 + 5 + num_boqs)}{total_row}')
+            ws.merge_cells(f'A{total_row}:{get_column_letter(total_final_col_idx - 1)}{total_row}')
             total_label_cell = ws[f'A{total_row}']
             total_label_cell.value = "ÜMUMİ MƏBLƏĞ:"
             total_label_cell.fill = total_fill
@@ -1619,9 +1646,9 @@ class SmetaWindow(QMainWindow):
             total_label_cell.border = border
 
             # Grand total formula
-            total_price_col = chr(65 + 6 + num_boqs)
-            grand_total_cell = ws[f'{total_price_col}{total_row}']
-            grand_total_cell.value = f"=SUM({total_price_col}4:{total_price_col}{row_num - 1})"
+            total_final_col_letter = get_column_letter(total_final_col_idx)
+            grand_total_cell = ws[f'{total_final_col_letter}{total_row}']
+            grand_total_cell.value = f"=SUM({total_final_col_letter}4:{total_final_col_letter}{row_num - 1})"
             grand_total_cell.fill = total_fill
             grand_total_cell.font = total_font
             grand_total_cell.alignment = Alignment(horizontal="center", vertical="center")
@@ -1635,7 +1662,7 @@ class SmetaWindow(QMainWindow):
             ws.column_dimensions['D'].width = 12
             ws.column_dimensions['E'].width = 18
 
-            for i in range(num_boqs + 2):  # Smeta columns + Total Qty + Total Price
+            for i in range((2 * num_boqs) + 2):  # Smeta qty/final + Total Qty + Total Final
                 col_letter = chr(70 + i)  # Start from F
                 ws.column_dimensions[col_letter].width = 14
 
