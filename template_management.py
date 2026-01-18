@@ -15,7 +15,7 @@ class TemplateManagementWindow(QDialog):
     def __init__(self, parent=None, db=None, boq_window=None):
         super().__init__(parent)
         self.db = db
-        self.boq_window = boq_window  # Reference to BoQWindow for loading items
+        self.boq_window = boq_window  # Reference to SmetaWindow for loading items
         self.current_template_id = None
         self.template_items = []
         self.init_ui()
@@ -127,14 +127,14 @@ class TemplateManagementWindow(QDialog):
 
         right_panel.addLayout(item_btn_layout)
 
-        # Save and Load to BoQ buttons
+        # Save and Load to Smeta buttons
         action_btn_layout = QHBoxLayout()
 
         self.save_template_btn = QPushButton("💾 Şablonu Saxla")
         self.save_template_btn.clicked.connect(self.save_template)
         self.save_template_btn.setStyleSheet("background-color: #4CAF50; color: white; padding: 10px 20px; border: none; border-radius: 4px; font-weight: bold; font-size: 14px;")
 
-        self.load_to_boq_btn = QPushButton("📂 BoQ-a Yüklə")
+        self.load_to_boq_btn = QPushButton("📂 Smeta-a Yüklə")
         self.load_to_boq_btn.clicked.connect(self.load_to_boq)
         self.load_to_boq_btn.setStyleSheet("background-color: #673AB7; color: white; padding: 10px 20px; border: none; border-radius: 4px; font-weight: bold; font-size: 14px;")
 
@@ -313,19 +313,19 @@ class TemplateManagementWindow(QDialog):
             QMessageBox.critical(self, "Xəta", f"Şablon saxlanılarkən xəta: {str(e)}")
 
     def load_to_boq(self):
-        """Load template items to BoQ with product selection for generic items"""
+        """Load template items to Smeta with product selection for generic items"""
         if not self.template_items:
             QMessageBox.warning(self, "Xəbərdarlıq", "Şablonda heç bir qeyd yoxdur!")
             return
 
         if not self.boq_window:
-            QMessageBox.warning(self, "Xəbərdarlıq", "BoQ pəncərəsi tapılmadı!")
+            QMessageBox.warning(self, "Xəbərdarlıq", "Smeta pəncərəsi tapılmadı!")
             return
 
         # Ask about loading mode
         reply = QMessageBox.question(
             self, "Yükləmə Rejimi",
-            "Mövcud BoQ qeydlərini əvəz etmək istəyirsiniz?\n\n'Bəli' - Əvəz et\n'Xeyr' - Mövcud qeydlərə əlavə et",
+            "Mövcud Smeta qeydlərini əvəz etmək istəyirsiniz?\n\n'Bəli' - Əvəz et\n'Xeyr' - Mövcud qeydlərə əlavə et",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel
         )
 
@@ -372,7 +372,7 @@ class TemplateManagementWindow(QDialog):
                     items_added += 1
 
         self.boq_window.refresh_table()
-        QMessageBox.information(self, "Uğurlu", f"{items_added} qeyd BoQ-a əlavə edildi!")
+        QMessageBox.information(self, "Uğurlu", f"{items_added} qeyd Smeta-a əlavə edildi!")
         self.accept()
 
     def select_product_for_generic(self, template_item):
@@ -388,7 +388,7 @@ class TemplateManagementWindow(QDialog):
         return None
 
     def create_boq_item_from_selection(self, template_item, product):
-        """Create a BoQ item from template item and selected product"""
+        """Create a Smeta item from template item and selected product"""
         return {
             'id': self.boq_window.next_id,
             'name': product['mehsulun_adi'],

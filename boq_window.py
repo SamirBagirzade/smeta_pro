@@ -1,4 +1,4 @@
-"""BoQ window implementation."""
+"""Smeta window implementation."""
 
 import os
 from datetime import timezone
@@ -11,24 +11,24 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QShortcut, QKeySequence
 
-from dialogs import BoQItemDialog
+from dialogs import SmetaItemDialog
 from template_management import TemplateManagementWindow
 
 
-class BoQWindow(QMainWindow):
+class SmetaWindow(QMainWindow):
     """Bill of Quantities Window"""
 
     def __init__(self, parent=None, db=None):
         super().__init__(parent)
         self.parent_window = parent
         self.db = db
-        self.boq_items = []  # List to store BoQ items
+        self.boq_items = []  # List to store Smeta items
         self.next_id = 1
-        self.boq_name = "BoQ 1"  # Default name
+        self.boq_name = "Smeta 1"  # Default name
         self.init_ui()
 
     def init_ui(self):
-        self.setWindowTitle("📋 Bill of Quantities (BoQ)")
+        self.setWindowTitle("📋 Bill of Quantities (Smeta)")
         self.setGeometry(150, 150, 1200, 650)
 
         # Central widget
@@ -59,8 +59,8 @@ class BoQWindow(QMainWindow):
         self.move_down_btn.setStyleSheet("background-color: #607D8B; color: white; border: none; border-radius: 4px; font-weight: bold;")
         self.move_down_btn.setToolTip("Aşağı daşı (Ctrl+Down)")
 
-        # BoQ Name input
-        name_label = QLabel("BoQ Adı:")
+        # Smeta Name input
+        name_label = QLabel("Smeta Adı:")
         name_label.setStyleSheet("font-size: 14px; font-weight: bold;")
         self.boq_name_input = QLineEdit(self.boq_name)
         self.boq_name_input.setMaximumWidth(200)
@@ -107,6 +107,8 @@ class BoQWindow(QMainWindow):
         header.setSectionResizeMode(11, QHeaderView.ResizeMode.ResizeToContents)  # Növ
 
         main_layout.addWidget(self.table)
+        self.table.cellDoubleClicked.connect(lambda *_: self.edit_item())
+        self.table.installEventFilter(self)
 
         # Summary labels
         summary_layout = QHBoxLayout()
@@ -182,7 +184,7 @@ class BoQWindow(QMainWindow):
             }
         """)
 
-        self.save_boq_btn = QPushButton("💾 BoQ Yadda Saxla")
+        self.save_boq_btn = QPushButton("💾 Smeta Yadda Saxla")
         self.save_boq_btn.clicked.connect(self.save_boq)
         self.save_boq_btn.setStyleSheet("""
             QPushButton {
@@ -199,7 +201,7 @@ class BoQWindow(QMainWindow):
             }
         """)
 
-        self.load_boq_btn = QPushButton("📂 BoQ Yüklə")
+        self.load_boq_btn = QPushButton("📂 Smeta Yüklə")
         self.load_boq_btn.clicked.connect(self.load_boq)
         self.load_boq_btn.setStyleSheet("""
             QPushButton {
@@ -250,7 +252,7 @@ class BoQWindow(QMainWindow):
             }
         """)
 
-        self.combine_boq_btn = QPushButton("🔗 BoQ-ları Birləşdir")
+        self.combine_boq_btn = QPushButton("🔗 Smeta-ları Birləşdir")
         self.combine_boq_btn.clicked.connect(self.combine_boqs_to_excel)
         self.combine_boq_btn.setStyleSheet("""
             QPushButton {
@@ -320,15 +322,16 @@ class BoQWindow(QMainWindow):
         self.setup_shortcuts()
 
     def setup_shortcuts(self):
-        """Setup keyboard shortcuts for BoQWindow"""
-        # Ctrl+S: Save BoQ
+        """Setup keyboard shortcuts for SmetaWindow"""
+        # Ctrl+S: Save Smeta
         QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(self.save_boq)
 
-        # Ctrl+O: Load BoQ
+        # Ctrl+O: Load Smeta
         QShortcut(QKeySequence("Ctrl+O"), self).activated.connect(self.load_boq)
 
         # Ctrl+E: Edit selected item
         QShortcut(QKeySequence("Ctrl+E"), self).activated.connect(self.edit_item)
+        # Enter handling is implemented via eventFilter on the table.
 
         # Delete: Delete selected item(s)
         QShortcut(QKeySequence("Delete"), self).activated.connect(self.delete_item)
@@ -345,7 +348,7 @@ class BoQWindow(QMainWindow):
             QMessageBox.warning(self, "Xəta", "Verilənlər bazasına qoşulmayıbsınız!")
             return
 
-        dialog = BoQItemDialog(self, self.db, mode="add_from_db")
+        dialog = SmetaItemDialog(self, self.db, mode="add_from_db")
         if dialog.exec():
             data = dialog.get_data()
             data['id'] = self.next_id
@@ -355,7 +358,7 @@ class BoQWindow(QMainWindow):
 
     def add_custom_item(self):
         """Add custom item (not from database)"""
-        dialog = BoQItemDialog(self, self.db, mode="custom")
+        dialog = SmetaItemDialog(self, self.db, mode="custom")
         if dialog.exec():
             data = dialog.get_data()
             data['id'] = self.next_id
@@ -365,6 +368,8 @@ class BoQWindow(QMainWindow):
 
     def edit_item(self):
         """Edit selected item"""
+        if not self.isActiveWindow() or not self.table.hasFocus():
+            return
         selected_row = self.table.currentRow()
         if selected_row < 0:
             QMessageBox.warning(self, "Xəbərdarlıq", "Redaktə etmək üçün qeyd seçin!")
@@ -373,12 +378,19 @@ class BoQWindow(QMainWindow):
         item = self.boq_items[selected_row]
         mode = "custom" if item.get('is_custom') else "edit"
 
-        dialog = BoQItemDialog(self, self.db, item=item, mode=mode)
+        dialog = SmetaItemDialog(self, self.db, item=item, mode=mode)
         if dialog.exec():
             data = dialog.get_data()
             data['id'] = item['id']
             self.boq_items[selected_row] = data
             self.refresh_table()
+
+    def eventFilter(self, source, event):
+        if source is self.table and event.type() == event.Type.KeyPress:
+            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self.edit_item()
+                return True
+        return super().eventFilter(source, event)
 
     def delete_item(self):
         """Delete selected item(s)"""
@@ -462,7 +474,7 @@ class BoQWindow(QMainWindow):
         self.next_id = len(self.boq_items) + 1
 
     def refresh_table(self):
-        """Refresh the BoQ table"""
+        """Refresh the Smeta table"""
         self.table.setRowCount(0)
 
         for item in self.boq_items:
@@ -568,9 +580,9 @@ class BoQWindow(QMainWindow):
             print(f"Sort error: {e}")
 
     def export_to_excel(self):
-        """Export BoQ to Excel file"""
+        """Export Smeta to Excel file"""
         if not self.boq_items:
-            QMessageBox.warning(self, "Xəbərdarlıq", "BoQ boşdur! İxrac etmək üçün məhsul əlavə edin.")
+            QMessageBox.warning(self, "Xəbərdarlıq", "Smeta boşdur! İxrac etmək üçün məhsul əlavə edin.")
             return
 
         try:
@@ -590,8 +602,8 @@ class BoQWindow(QMainWindow):
             from PyQt6.QtWidgets import QFileDialog
             file_path, _ = QFileDialog.getSaveFileName(
                 self,
-                "BoQ-u Excel-ə İxrac Et",
-                "BoQ.xlsx",
+                "Smeta-u Excel-ə İxrac Et",
+                "Smeta.xlsx",
                 "Excel Files (*.xlsx)"
             )
 
@@ -774,20 +786,20 @@ class BoQWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 "Uğurlu",
-                f"BoQ uğurla Excel-ə ixrac edildi!\n\n{file_path}"
+                f"Smeta uğurla Excel-ə ixrac edildi!\n\n{file_path}"
             )
 
         except Exception as e:
             QMessageBox.critical(self, "Xəta", f"İxrac zamanı xəta:\n{str(e)}")
 
     def update_boq_name(self):
-        """Update BoQ name from input field"""
-        self.boq_name = self.boq_name_input.text().strip() or "BoQ 1"
+        """Update Smeta name from input field"""
+        self.boq_name = self.boq_name_input.text().strip() or "Smeta 1"
 
     def save_boq(self):
-        """Save BoQ to JSON file with optional cloud save"""
+        """Save Smeta to JSON file with optional cloud save"""
         if not self.boq_items:
-            QMessageBox.warning(self, "Xəbərdarlıq", "BoQ boşdur! Yadda saxlamaq üçün məhsul əlavə edin.")
+            QMessageBox.warning(self, "Xəbərdarlıq", "Smeta boşdur! Yadda saxlamaq üçün məhsul əlavə edin.")
             return
 
         try:
@@ -796,13 +808,13 @@ class BoQWindow(QMainWindow):
 
             # Create custom dialog with checkbox
             dialog = QDialog(self)
-            dialog.setWindowTitle("BoQ-u Yadda Saxla")
+            dialog.setWindowTitle("Smeta-u Yadda Saxla")
             dialog.setMinimumWidth(400)
 
             layout = QVBoxLayout()
 
             # Info label
-            info_label = QLabel("BoQ-u harada saxlamaq istəyirsiniz?")
+            info_label = QLabel("Smeta-u harada saxlamaq istəyirsiniz?")
             layout.addWidget(info_label)
 
             # Cloud save checkbox
@@ -861,7 +873,7 @@ class BoQWindow(QMainWindow):
             save_to_cloud = cloud_checkbox.isChecked()
 
             # Ask user for file location
-            default_name = f"{self.boq_name}.json" if self.boq_name else "BoQ.json"
+            default_name = f"{self.boq_name}.json" if self.boq_name else "Smeta.json"
 
             # Set default directory to saved_boqs folder
             saved_boqs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saved_boqs")
@@ -870,7 +882,7 @@ class BoQWindow(QMainWindow):
 
             file_path, _ = QFileDialog.getSaveFileName(
                 self,
-                "BoQ-u Yadda Saxla",
+                "Smeta-u Yadda Saxla",
                 default_path,
                 "JSON Files (*.json)"
             )
@@ -889,7 +901,7 @@ class BoQWindow(QMainWindow):
             with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(save_data, f, ensure_ascii=False, indent=2)
 
-            success_message = f"BoQ lokal faylda yadda saxlanıldı:\n{file_path}"
+            success_message = f"Smeta lokal faylda yadda saxlanıldı:\n{file_path}"
 
             # Save to cloud if checkbox is checked
             if save_to_cloud and self.db:
@@ -913,10 +925,10 @@ class BoQWindow(QMainWindow):
             )
 
         except Exception as e:
-            QMessageBox.critical(self, "Xəta", f"BoQ yadda saxlanarkən xəta:\n{str(e)}")
+            QMessageBox.critical(self, "Xəta", f"Smeta yadda saxlanarkən xəta:\n{str(e)}")
 
     def load_boq(self):
-        """Load BoQ from JSON file and update prices from database"""
+        """Load Smeta from JSON file and update prices from database"""
         try:
             import json
             from PyQt6.QtWidgets import QFileDialog
@@ -924,7 +936,7 @@ class BoQWindow(QMainWindow):
             # Ask user for file to load
             file_path, _ = QFileDialog.getOpenFileName(
                 self,
-                "BoQ Yüklə",
+                "Smeta Yüklə",
                 "",
                 "JSON Files (*.json)"
             )
@@ -932,12 +944,12 @@ class BoQWindow(QMainWindow):
             if not file_path:
                 return
 
-            # Confirm if current BoQ will be replaced
+            # Confirm if current Smeta will be replaced
             if self.boq_items:
                 reply = QMessageBox.question(
                     self,
                     "Təsdiq",
-                    "Mövcud BoQ məlumatları əvəz olunacaq. Davam etmək istəyirsiniz?",
+                    "Mövcud Smeta məlumatları əvəz olunacaq. Davam etmək istəyirsiniz?",
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
                 )
                 if reply != QMessageBox.StandardButton.Yes:
@@ -947,7 +959,7 @@ class BoQWindow(QMainWindow):
             with open(file_path, 'r', encoding='utf-8') as f:
                 save_data = json.load(f)
 
-            self.boq_name = save_data.get('boq_name', 'BoQ 1')
+            self.boq_name = save_data.get('boq_name', 'Smeta 1')
             self.boq_name_input.setText(self.boq_name)
             self.next_id = save_data.get('next_id', 1)
             loaded_items = save_data.get('items', [])
@@ -979,46 +991,46 @@ class BoQWindow(QMainWindow):
             self.boq_items = loaded_items
             self.refresh_table()
 
-            message = f"BoQ uğurla yükləndi!\n\n{len(loaded_items)} məhsul yükləndi."
+            message = f"Smeta uğurla yükləndi!\n\n{len(loaded_items)} məhsul yükləndi."
             if updated_count > 0:
                 message += f"\n{updated_count} məhsulun qiyməti yeniləndi."
 
             QMessageBox.information(self, "Uğurlu", message)
 
         except Exception as e:
-            QMessageBox.critical(self, "Xəta", f"BoQ yüklənərkən xəta:\n{str(e)}")
+            QMessageBox.critical(self, "Xəta", f"Smeta yüklənərkən xəta:\n{str(e)}")
 
     def load_from_cloud(self):
-        """Load BoQ from cloud (MongoDB)"""
+        """Load Smeta from cloud (MongoDB)"""
         if not self.db:
             QMessageBox.warning(self, "Xəbərdarlıq", "Verilənlər bazasına qoşulun!")
             return
 
         try:
-            # Get all cloud BoQs
+            # Get all cloud Smetas
             cloud_boqs = self.db.get_all_cloud_boqs()
 
             if not cloud_boqs:
-                QMessageBox.information(self, "Məlumat", "Buludda heç bir BoQ tapılmadı!")
+                QMessageBox.information(self, "Məlumat", "Buludda heç bir Smeta tapılmadı!")
                 return
 
             # Create selection dialog
             dialog = QDialog(self)
-            dialog.setWindowTitle("Buluddan BoQ Yüklə")
+            dialog.setWindowTitle("Buluddan Smeta Yüklə")
             dialog.setMinimumWidth(600)
             dialog.setMinimumHeight(500)
 
             layout = QVBoxLayout()
 
             # Title
-            title = QLabel("Yükləmək üçün BoQ seçin:")
+            title = QLabel("Yükləmək üçün Smeta seçin:")
             title.setStyleSheet("font-size: 14px; font-weight: bold; padding: 10px;")
             layout.addWidget(title)
 
             # Search input
             search_layout = QHBoxLayout()
             search_input = QLineEdit()
-            search_input.setPlaceholderText("🔍 BoQ adına görə axtar...")
+            search_input.setPlaceholderText("🔍 Smeta adına görə axtar...")
             search_input.setStyleSheet("""
                 QLineEdit {
                     padding: 8px 12px;
@@ -1033,7 +1045,7 @@ class BoQWindow(QMainWindow):
             search_layout.addWidget(search_input)
             layout.addLayout(search_layout)
 
-            # List widget for BoQs
+            # List widget for Smetas
             from PyQt6.QtWidgets import QListWidget, QListWidgetItem
             boq_list = QListWidget()
             boq_list.setStyleSheet("""
@@ -1054,11 +1066,11 @@ class BoQWindow(QMainWindow):
                 }
             """)
 
-            # Store all BoQs for filtering
+            # Store all Smetas for filtering
             all_boqs = cloud_boqs
 
             def format_boq_item(boq):
-                """Format BoQ data for display"""
+                """Format Smeta data for display"""
                 item_count = len(boq.get('items', []))
                 updated_at = boq.get('updated_at', '')
                 if updated_at:
@@ -1075,7 +1087,7 @@ class BoQWindow(QMainWindow):
                 return f"{boq['name']} ({item_count} məhsul) - Son yenilənmə: {updated_str}"
 
             def populate_list(boqs):
-                """Populate the list with BoQs"""
+                """Populate the list with Smetas"""
                 boq_list.clear()
                 for boq in boqs:
                     item_text = format_boq_item(boq)
@@ -1084,7 +1096,7 @@ class BoQWindow(QMainWindow):
                     boq_list.addItem(list_item)
 
             def search_boqs():
-                """Search BoQs based on input"""
+                """Search Smetas based on input"""
                 search_term = search_input.text().strip()
                 if not search_term:
                     populate_list(all_boqs)
@@ -1166,26 +1178,26 @@ class BoQWindow(QMainWindow):
             def load_selected():
                 selected_items = boq_list.selectedItems()
                 if not selected_items:
-                    QMessageBox.warning(dialog, "Xəbərdarlıq", "BoQ seçin!")
+                    QMessageBox.warning(dialog, "Xəbərdarlıq", "Smeta seçin!")
                     return
 
                 boq_id = selected_items[0].data(Qt.ItemDataRole.UserRole)
 
-                # Confirm if current BoQ will be replaced
+                # Confirm if current Smeta will be replaced
                 if self.boq_items:
                     reply = QMessageBox.question(
                         dialog,
                         "Təsdiq",
-                        "Mövcud BoQ məlumatları əvəz olunacaq. Davam etmək istəyirsiniz?",
+                        "Mövcud Smeta məlumatları əvəz olunacaq. Davam etmək istəyirsiniz?",
                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
                     )
                     if reply != QMessageBox.StandardButton.Yes:
                         return
 
-                # Load BoQ from cloud
+                # Load Smeta from cloud
                 boq_data = self.db.load_boq_from_cloud(boq_id)
                 if boq_data:
-                    self.boq_name = boq_data.get('name', 'BoQ 1')
+                    self.boq_name = boq_data.get('name', 'Smeta 1')
                     self.boq_name_input.setText(self.boq_name)
                     self.next_id = boq_data.get('next_id', 1)
                     loaded_items = boq_data.get('items', [])
@@ -1214,20 +1226,20 @@ class BoQWindow(QMainWindow):
                     self.boq_items = loaded_items
                     self.refresh_table()
 
-                    message = f"BoQ buluddan yükləndi!\n\n{len(loaded_items)} məhsul yükləndi."
+                    message = f"Smeta buluddan yükləndi!\n\n{len(loaded_items)} məhsul yükləndi."
                     if updated_count > 0:
                         message += f"\n{updated_count} məhsulun qiyməti yeniləndi."
 
                     QMessageBox.information(self, "Uğurlu", message)
                     dialog.accept()
                 else:
-                    QMessageBox.critical(dialog, "Xəta", "BoQ yüklənə bilmədi!")
+                    QMessageBox.critical(dialog, "Xəta", "Smeta yüklənə bilmədi!")
 
             # Handle delete button
             def delete_selected():
                 selected_items = boq_list.selectedItems()
                 if not selected_items:
-                    QMessageBox.warning(dialog, "Xəbərdarlıq", "BoQ seçin!")
+                    QMessageBox.warning(dialog, "Xəbərdarlıq", "Smeta seçin!")
                     return
 
                 boq_id = selected_items[0].data(Qt.ItemDataRole.UserRole)
@@ -1236,20 +1248,20 @@ class BoQWindow(QMainWindow):
                 reply = QMessageBox.question(
                     dialog,
                     "Təsdiq",
-                    f"'{boq_name}' BoQ-nu buluddan silmək istədiyinizdən əminsiniz?",
+                    f"'{boq_name}' Smeta-nu buluddan silmək istədiyinizdən əminsiniz?",
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
                 )
 
                 if reply == QMessageBox.StandardButton.Yes:
                     if self.db.delete_cloud_boq(boq_id):
                         boq_list.takeItem(boq_list.row(selected_items[0]))
-                        QMessageBox.information(dialog, "Uğurlu", "BoQ buluddan silindi!")
+                        QMessageBox.information(dialog, "Uğurlu", "Smeta buluddan silindi!")
 
                         if boq_list.count() == 0:
-                            QMessageBox.information(dialog, "Məlumat", "Buludda daha BoQ qalmadı.")
+                            QMessageBox.information(dialog, "Məlumat", "Buludda daha Smeta qalmadı.")
                             dialog.accept()
                     else:
-                        QMessageBox.critical(dialog, "Xəta", "BoQ silinə bilmədi!")
+                        QMessageBox.critical(dialog, "Xəta", "Smeta silinə bilmədi!")
 
             load_btn.clicked.connect(load_selected)
             delete_btn.clicked.connect(delete_selected)
@@ -1264,26 +1276,26 @@ class BoQWindow(QMainWindow):
             QMessageBox.critical(self, "Xəta", f"Buluddan yükləmə xətası:\n{str(e)}")
 
     def combine_boqs_to_excel(self):
-        """Combine multiple BoQs into a single Excel file"""
+        """Combine multiple Smetas into a single Excel file"""
         try:
             import json
             from PyQt6.QtWidgets import QFileDialog
             from openpyxl import Workbook
             from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 
-            # Ask user to select multiple BoQ files
+            # Ask user to select multiple Smeta files
             file_paths, _ = QFileDialog.getOpenFileNames(
                 self,
-                "BoQ Fayllarını Seçin",
+                "Smeta Fayllarını Seçin",
                 "",
                 "JSON Files (*.json)"
             )
 
             if not file_paths or len(file_paths) < 2:
-                QMessageBox.warning(self, "Xəbərdarlıq", "Ən azı 2 BoQ faylı seçin!")
+                QMessageBox.warning(self, "Xəbərdarlıq", "Ən azı 2 Smeta faylı seçin!")
                 return
 
-            # Load all BoQs
+            # Load all Smetas
             boqs = []
             for file_path in file_paths:
                 try:
@@ -1297,7 +1309,7 @@ class BoQWindow(QMainWindow):
                     QMessageBox.warning(self, "Xəbərdarlıq", f"Fayl oxuna bilmədi: {os.path.basename(file_path)}\n{str(e)}")
 
             if len(boqs) < 2:
-                QMessageBox.warning(self, "Xəbərdarlıq", "Ən azı 2 BoQ uğurla yüklənməlidir!")
+                QMessageBox.warning(self, "Xəbərdarlıq", "Ən azı 2 Smeta uğurla yüklənməlidir!")
                 return
 
             # Create a unified list of all unique items (by name)
@@ -1316,14 +1328,14 @@ class BoQWindow(QMainWindow):
                             'quantities': {}
                         }
 
-            # Fill quantities for each BoQ
+            # Fill quantities for each Smeta
             for boq_idx, boq in enumerate(boqs):
                 boq_name = boq['name']
                 for item in boq['items']:
                     item_key = item['name']
                     all_items_dict[item_key]['quantities'][boq_name] = item.get('quantity', 0)
 
-            # Ensure all items have entries for all BoQs (fill with 0 if missing)
+            # Ensure all items have entries for all Smetas (fill with 0 if missing)
             for item_data in all_items_dict.values():
                 for boq in boqs:
                     if boq['name'] not in item_data['quantities']:
@@ -1332,8 +1344,8 @@ class BoQWindow(QMainWindow):
             # Ask user for output file
             output_path, _ = QFileDialog.getSaveFileName(
                 self,
-                "Birləşdirilmiş BoQ-u Yadda Saxla",
-                "Birləşdirilmiş_BoQ.xlsx",
+                "Birləşdirilmiş Smeta-u Yadda Saxla",
+                "Birləşdirilmiş_Smeta.xlsx",
                 "Excel Files (*.xlsx)"
             )
 
@@ -1343,7 +1355,7 @@ class BoQWindow(QMainWindow):
             # Create Excel workbook
             wb = Workbook()
             ws = wb.active
-            ws.title = "Combined BoQ"
+            ws.title = "Combined Smeta"
 
             # Define styles
             header_fill = PatternFill(start_color="2196F3", end_color="2196F3", fill_type="solid")
@@ -1395,7 +1407,7 @@ class BoQWindow(QMainWindow):
                 ws.cell(row=row_num, column=5, value=item_data['unit_price']).border = border
                 ws.cell(row=row_num, column=5).number_format = '0.00'
 
-                # Quantities for each BoQ
+                # Quantities for each Smeta
                 col = 6
                 first_qty_col = chr(65 + 5)  # F
                 for boq in boqs:
@@ -1404,7 +1416,7 @@ class BoQWindow(QMainWindow):
                     ws.cell(row=row_num, column=col).number_format = '0.00'
                     col += 1
 
-                last_qty_col = chr(65 + col - 2)  # Last BoQ column
+                last_qty_col = chr(65 + col - 2)  # Last Smeta column
 
                 # Total quantity column (SUM formula)
                 total_qty_col = chr(65 + col - 1)
@@ -1452,7 +1464,7 @@ class BoQWindow(QMainWindow):
             ws.column_dimensions['D'].width = 12
             ws.column_dimensions['E'].width = 18
 
-            for i in range(num_boqs + 2):  # BoQ columns + Total Qty + Total Price
+            for i in range(num_boqs + 2):  # Smeta columns + Total Qty + Total Price
                 col_letter = chr(70 + i)  # Start from F
                 ws.column_dimensions[col_letter].width = 14
 
@@ -1462,11 +1474,11 @@ class BoQWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 "Uğurlu",
-                f"BoQ-lar uğurla birləşdirildi!\n\n{len(boqs)} BoQ birləşdirildi\n{len(all_items_dict)} unikal məhsul\n\n{output_path}"
+                f"Smeta-lar uğurla birləşdirildi!\n\n{len(boqs)} Smeta birləşdirildi\n{len(all_items_dict)} unikal məhsul\n\n{output_path}"
             )
 
         except Exception as e:
-            QMessageBox.critical(self, "Xəta", f"BoQ-lar birləşdirilərkən xəta:\n{str(e)}")
+            QMessageBox.critical(self, "Xəta", f"Smeta-lar birləşdirilərkən xəta:\n{str(e)}")
 
     def open_template_management(self):
         """Open Template Management window"""

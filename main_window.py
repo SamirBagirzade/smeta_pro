@@ -14,9 +14,9 @@ from PyQt6.QtGui import QFont, QColor, QShortcut, QKeySequence
 from db import DatabaseManager
 from dialogs import (
     DatabaseConfigDialog, ImageViewerDialog, PriceHistoryDialog, ProductDialog,
-    BoQItemDialog
+    SmetaItemDialog
 )
-from boq_window import BoQWindow
+from boq_window import SmetaWindow
 from project_window import ProjectWindow
 
 
@@ -26,7 +26,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.db = None
-        self.boq_window = None  # Single BoQ window instance
+        self.boq_window = None  # Single Smeta window instance
         self.project_window = None  # Single Project window instance
 
         # Create a timer for search debouncing
@@ -86,6 +86,7 @@ class MainWindow(QMainWindow):
 
         # Table
         self.table = QTableWidget()
+        self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.table.setColumnCount(8)
         self.table.setHorizontalHeaderLabels([
             "ID", "Məhsulun Adı", "Kateqoriya", "Qiymət (AZN)", "Qiymət Dəyişdi (Gün)", "Məhsul Mənbəyi", "Ölçü Vahidi", "Qeyd"
@@ -107,8 +108,11 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)  # Ölçü Vahidi
         header.setSectionResizeMode(7, QHeaderView.ResizeMode.Stretch)  # Qeyd
 
-        # Connect double-click to quick add to BoQ
+        # Connect double-click to quick add to Smeta
         self.table.cellDoubleClicked.connect(self.quick_add_to_boq)
+        self.table.cellClicked.connect(lambda *_: self.table.setFocus())
+        self.table.installEventFilter(self)
+        # Enter handling is implemented via eventFilter on the table.
 
         # Enable context menu
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -225,7 +229,7 @@ class MainWindow(QMainWindow):
             }
         """)
 
-        self.add_to_boq_btn = QPushButton("➕ BoQ-ya Əlavə Et")
+        self.add_to_boq_btn = QPushButton("➕ Smeta-ya Əlavə Et")
         self.add_to_boq_btn.clicked.connect(self.add_selected_to_boq)
         self.add_to_boq_btn.setEnabled(False)
         self.add_to_boq_btn.setStyleSheet("""
@@ -246,7 +250,7 @@ class MainWindow(QMainWindow):
             }
         """)
 
-        self.boq_btn = QPushButton("📋 BoQ Aç")
+        self.boq_btn = QPushButton("📋 Smeta Aç")
         self.boq_btn.clicked.connect(self.open_boq_window)
         self.boq_btn.setStyleSheet("""
             QPushButton {
@@ -329,7 +333,7 @@ class MainWindow(QMainWindow):
         # Ctrl+F: Focus search box
         QShortcut(QKeySequence("Ctrl+F"), self).activated.connect(self.focus_search)
 
-        # Ctrl+B: Open BoQ window
+        # Ctrl+B: Open Smeta window
         QShortcut(QKeySequence("Ctrl+B"), self).activated.connect(self.open_boq_window)
 
         # F5: Refresh products
@@ -339,6 +343,13 @@ class MainWindow(QMainWindow):
         """Focus the search input field"""
         self.search_input.setFocus()
         self.search_input.selectAll()
+
+    def eventFilter(self, source, event):
+        if source is self.table and event.type() == event.Type.KeyPress:
+            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self.add_selected_to_boq()
+                return True
+        return super().eventFilter(source, event)
 
     def show_db_config(self):
         """Show database configuration dialog"""
@@ -651,7 +662,7 @@ class MainWindow(QMainWindow):
             menu.addSeparator()
 
         # Multi-selection compatible actions
-        add_to_boq_action = menu.addAction(f"➕ BoQ-a Əlavə Et ({len(selected_rows)} məhsul)")
+        add_to_boq_action = menu.addAction(f"➕ Smeta-a Əlavə Et ({len(selected_rows)} məhsul)")
         add_to_boq_action.triggered.connect(self.add_selected_to_boq)
 
         menu.addSeparator()
@@ -723,14 +734,14 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Xəta", f"Məhsul kopyalanarkən xəta:\n{str(e)}")
 
     def quick_add_to_boq(self, row, column):
-        """Quick add product to BoQ on double-click"""
+        """Quick add product to Smeta on double-click"""
         if not self.db:
             QMessageBox.warning(self, "Xəta", "Verilənlər bazasına qoşulmayıbsınız!")
             return
 
-        # Check if BoQ window exists
+        # Check if Smeta window exists
         if not self.boq_window:
-            QMessageBox.warning(self, "Xəbərdarlıq", "BoQ pəncərəsi açılmayıb! Əvvəlcə 'BoQ Aç' düyməsini basın.")
+            QMessageBox.warning(self, "Xəbərdarlıq", "Smeta pəncərəsi açılmayıb! Əvvəlcə 'Smeta Aç' düyməsini basın.")
             return
 
         try:
@@ -753,8 +764,8 @@ class MainWindow(QMainWindow):
             }
 
             # Show dialog for quantity input
-            dialog = BoQItemDialog(self, self.db, item=item, mode="edit")
-            dialog.setWindowTitle(f"BoQ-a Əlavə Et: {product['mehsulun_adi']}")
+            dialog = SmetaItemDialog(self, self.db, item=item, mode="edit")
+            dialog.setWindowTitle(f"Smeta-a Əlavə Et: {product['mehsulun_adi']}")
 
             if dialog.exec():
                 data = dialog.get_data()
@@ -762,20 +773,20 @@ class MainWindow(QMainWindow):
                 self.boq_window.next_id += 1
                 self.boq_window.boq_items.append(data)
                 self.boq_window.refresh_table()
-                self.show_status(f"'{product['mehsulun_adi']}' BoQ-a əlavə edildi", "#4CAF50")
+                self.show_status(f"'{product['mehsulun_adi']}' Smeta-a əlavə edildi", "#4CAF50")
 
         except Exception as e:
             QMessageBox.critical(self, "Xəta", f"Məhsul əlavə edilərkən xəta:\n{str(e)}")
 
     def add_selected_to_boq(self):
-        """Add selected products to BoQ with sequential quantity dialogs"""
+        """Add selected products to Smeta with sequential quantity dialogs"""
         if not self.db:
             QMessageBox.warning(self, "Xəta", "Verilənlər bazasına qoşulmayıbsınız!")
             return
 
-        # Check if BoQ window exists
+        # Check if Smeta window exists
         if not self.boq_window:
-            QMessageBox.warning(self, "Xəbərdarlıq", "BoQ pəncərəsi açılmayıb! Əvvəlcə 'BoQ yarat' düyməsini basın.")
+            QMessageBox.warning(self, "Xəbərdarlıq", "Smeta pəncərəsi açılmayıb! Əvvəlcə 'Smeta yarat' düyməsini basın.")
             return
 
         # Get all selected rows
@@ -806,8 +817,8 @@ class MainWindow(QMainWindow):
                 }
 
                 # Show dialog for quantity input
-                dialog = BoQItemDialog(self, self.db, item=item, mode="edit")
-                dialog.setWindowTitle(f"BoQ-a Əlavə Et: {product['mehsulun_adi']}")
+                dialog = SmetaItemDialog(self, self.db, item=item, mode="edit")
+                dialog.setWindowTitle(f"Smeta-a Əlavə Et: {product['mehsulun_adi']}")
 
                 if dialog.exec():
                     # Get the data from dialog
@@ -815,7 +826,7 @@ class MainWindow(QMainWindow):
                     data['id'] = self.boq_window.next_id
                     self.boq_window.next_id += 1
 
-                    # Add to BoQ
+                    # Add to Smeta
                     self.boq_window.boq_items.append(data)
                     added_count += 1
                 else:
@@ -826,13 +837,13 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Xəta", f"Məhsul əlavə edilərkən xəta:\n{str(e)}")
                 continue
 
-        # Refresh BoQ table and show success message
+        # Refresh Smeta table and show success message
         if added_count > 0:
             self.boq_window.refresh_table()
             if added_count == 1:
-                self.show_status("1 məhsul BoQ-a əlavə edildi", "#4CAF50")
+                self.show_status("1 məhsul Smeta-a əlavə edildi", "#4CAF50")
             else:
-                self.show_status(f"{added_count} məhsul BoQ-a əlavə edildi", "#4CAF50")
+                self.show_status(f"{added_count} məhsul Smeta-a əlavə edildi", "#4CAF50")
 
     def search_products(self):
         """Debounced search - waits for user to stop typing"""
@@ -888,7 +899,7 @@ class MainWindow(QMainWindow):
     def open_boq_window(self):
         """Open the Bill of Quantities window (singleton)"""
         if self.boq_window is None or not self.boq_window.isVisible():
-            self.boq_window = BoQWindow(self, self.db)
+            self.boq_window = SmetaWindow(self, self.db)
             self.boq_window.show()
         else:
             # Bring existing window to front

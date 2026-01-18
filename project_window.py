@@ -38,7 +38,7 @@ class ProjectWindow(QMainWindow):
         # Projects table
         self.table = QTableWidget()
         self.table.setColumnCount(5)
-        self.table.setHorizontalHeaderLabels(["Layihə Adı", "Təsvir", "Status", "BoQ Sayı", "Yenilənmə"])
+        self.table.setHorizontalHeaderLabels(["Layihə Adı", "Təsvir", "Status", "Smeta Sayı", "Yenilənmə"])
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
@@ -102,7 +102,7 @@ class ProjectWindow(QMainWindow):
             QPushButton:hover { background-color: #da190b; }
         """)
 
-        self.view_boqs_btn = QPushButton("📋 BoQ-ları Gör")
+        self.view_boqs_btn = QPushButton("📋 Smeta-ları Gör")
         self.view_boqs_btn.clicked.connect(self.view_project_boqs)
         self.view_boqs_btn.setStyleSheet("""
             QPushButton {
@@ -117,7 +117,7 @@ class ProjectWindow(QMainWindow):
             QPushButton:hover { background-color: #7B1FA2; }
         """)
 
-        self.add_boq_btn = QPushButton("➕ BoQ Əlavə Et")
+        self.add_boq_btn = QPushButton("➕ Smeta Əlavə Et")
         self.add_boq_btn.clicked.connect(self.add_boq_to_project)
         self.add_boq_btn.setStyleSheet("""
             QPushButton {
@@ -347,7 +347,7 @@ class ProjectWindow(QMainWindow):
         self.view_project_boqs()
 
     def view_project_boqs(self):
-        """View BoQs in selected project"""
+        """View Smetas in selected project"""
         selected_row = self.table.currentRow()
         if selected_row < 0:
             QMessageBox.warning(self, "Xəbərdarlıq", "Layihə seçin!")
@@ -363,19 +363,19 @@ class ProjectWindow(QMainWindow):
         boq_ids = project.get('boq_ids', [])
 
         dialog = QDialog(self)
-        dialog.setWindowTitle(f"Layihə BoQ-ları: {project_name}")
+        dialog.setWindowTitle(f"Layihə Smeta-ları: {project_name}")
         dialog.setMinimumWidth(600)
         dialog.setMinimumHeight(400)
 
         layout = QVBoxLayout()
 
         # Info label
-        layout.addWidget(QLabel(f"Layihədəki BoQ-lar ({len(boq_ids)}):"))
+        layout.addWidget(QLabel(f"Layihədəki Smeta-lar ({len(boq_ids)}):"))
 
-        # BoQ table
+        # Smeta table
         boq_table = QTableWidget()
         boq_table.setColumnCount(3)
-        boq_table.setHorizontalHeaderLabels(["BoQ Adı", "Qeyd Sayı", "Ümumi Məbləğ"])
+        boq_table.setHorizontalHeaderLabels(["Smeta Adı", "Qeyd Sayı", "Ümumi Məbləğ"])
         boq_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         boq_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
 
@@ -419,7 +419,7 @@ class ProjectWindow(QMainWindow):
         # Remove button
         button_layout = QHBoxLayout()
 
-        remove_btn = QPushButton("🗑️ Seçilmiş BoQ-u Çıxar")
+        remove_btn = QPushButton("🗑️ Seçilmiş Smeta-u Çıxar")
         remove_btn.setStyleSheet("background-color: #f44336; color: white; padding: 8px 16px; border: none; border-radius: 4px;")
 
         def remove_selected():
@@ -430,7 +430,7 @@ class ProjectWindow(QMainWindow):
                     self.db.remove_boq_from_project(project_id, boq_id_to_remove)
                     boq_table.removeRow(sel_row)
                     self.load_projects()
-                    QMessageBox.information(dialog, "Uğurlu", "BoQ layihədən çıxarıldı!")
+                    QMessageBox.information(dialog, "Uğurlu", "Smeta layihədən çıxarıldı!")
                 except Exception as e:
                     QMessageBox.critical(dialog, "Xəta", str(e))
 
@@ -447,7 +447,7 @@ class ProjectWindow(QMainWindow):
         dialog.exec()
 
     def add_boq_to_project(self):
-        """Add a cloud BoQ to selected project"""
+        """Add a cloud Smeta to selected project"""
         selected_row = self.table.currentRow()
         if selected_row < 0:
             QMessageBox.warning(self, "Xəbərdarlıq", "Əvvəlcə layihə seçin!")
@@ -464,24 +464,24 @@ class ProjectWindow(QMainWindow):
             all_boqs = self.db.get_all_cloud_boqs()
             existing_boq_ids = project.get('boq_ids', [])
 
-            # Filter out already added BoQs
+            # Filter out already added Smetas
             available_boqs = [b for b in all_boqs if b['id'] not in existing_boq_ids]
 
             if not available_boqs:
-                QMessageBox.information(self, "Məlumat", "Əlavə etmək üçün BoQ yoxdur. Bütün BoQ-lar artıq layihədədir.")
+                QMessageBox.information(self, "Məlumat", "Əlavə etmək üçün Smeta yoxdur. Bütün Smeta-lar artıq layihədədir.")
                 return
 
             dialog = QDialog(self)
-            dialog.setWindowTitle(f"BoQ Əlavə Et: {project_name}")
+            dialog.setWindowTitle(f"Smeta Əlavə Et: {project_name}")
             dialog.setMinimumWidth(500)
             dialog.setMinimumHeight(350)
 
             layout = QVBoxLayout()
-            layout.addWidget(QLabel("Əlavə etmək istədiyiniz BoQ-u seçin:"))
+            layout.addWidget(QLabel("Əlavə etmək istədiyiniz Smeta-u seçin:"))
 
             boq_table = QTableWidget()
             boq_table.setColumnCount(3)
-            boq_table.setHorizontalHeaderLabels(["BoQ Adı", "Qeyd Sayı", "Yenilənmə"])
+            boq_table.setHorizontalHeaderLabels(["Smeta Adı", "Qeyd Sayı", "Yenilənmə"])
             boq_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
             boq_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
             boq_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -537,7 +537,7 @@ class ProjectWindow(QMainWindow):
             if dialog.exec() == QDialog.DialogCode.Accepted and selected_boq[0]:
                 self.db.add_boq_to_project(project_id, selected_boq[0])
                 self.load_projects()
-                QMessageBox.information(self, "Uğurlu", "BoQ layihəyə əlavə edildi!")
+                QMessageBox.information(self, "Uğurlu", "Smeta layihəyə əlavə edildi!")
 
         except Exception as e:
-            QMessageBox.critical(self, "Xəta", f"BoQ əlavə edilərkən xəta:\n{str(e)}")
+            QMessageBox.critical(self, "Xəta", f"Smeta əlavə edilərkən xəta:\n{str(e)}")

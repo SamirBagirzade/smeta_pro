@@ -698,8 +698,8 @@ class ProductDialog(QDialog):
         super().accept()
 
 
-class BoQItemDialog(QDialog):
-    """Dialog for adding items to BoQ (from DB or custom)"""
+class SmetaItemDialog(QDialog):
+    """Dialog for adding items to Smeta (from DB or custom)"""
 
     def __init__(self, parent=None, db=None, item=None, mode="add_from_db"):
         super().__init__(parent)
@@ -1099,7 +1099,7 @@ class ProductSelectionDialog(QDialog):
         skip_btn = QPushButton("⏭️ Keç")
         skip_btn.clicked.connect(self.reject)
         skip_btn.setStyleSheet("background-color: #FF9800; color: white; padding: 8px 16px; border: none; border-radius: 4px;")
-        skip_btn.setToolTip("Bu qeydi BoQ-a əlavə etmə")
+        skip_btn.setToolTip("Bu qeydi Smeta-a əlavə etmə")
 
         button_layout.addStretch()
         button_layout.addWidget(select_btn)
