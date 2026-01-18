@@ -1481,6 +1481,7 @@ class SmetaWindow(QMainWindow):
 
             # Create a unified list of all unique items (by name)
             all_items_dict = {}
+            item_order = []
             for boq in boqs:
                 for item in boq['items']:
                     item_key = item['name']
@@ -1499,6 +1500,7 @@ class SmetaWindow(QMainWindow):
                             'note': item.get('note', ''),
                             'boq_data': {}
                         }
+                        item_order.append(item_key)
 
             # Fill quantities for each Smeta
             for boq_idx, boq in enumerate(boqs):
@@ -1588,7 +1590,8 @@ class SmetaWindow(QMainWindow):
             total_qty_col_idx = base_col + (num_boqs * 2)
             total_final_col_idx = total_qty_col_idx + 1
 
-            for idx, (item_name, item_data) in enumerate(sorted(all_items_dict.items()), 1):
+            for idx, item_key in enumerate(item_order, 1):
+                item_data = all_items_dict[item_key]
                 ws.cell(row=row_num, column=1, value=idx).border = border
                 ws.cell(row=row_num, column=2, value=item_data['name']).border = border
                 ws.cell(row=row_num, column=3, value=item_data['category'] or 'N/A').border = border
