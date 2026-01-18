@@ -561,7 +561,7 @@ class TemplateManagementWindow(QDialog):
                         'margin_percent': 0,
                         'category': template_item.get('category', ''),
                         'source': '',
-                        'note': f"Şablondan: {template_item.get('generic_name', '')}",
+                        'note': self._build_template_note(template_item=template_item),
                         'is_custom': True,
                         'product_id': None,
                         'quantity_round': bool(template_item.get('amount_round')),
@@ -595,7 +595,7 @@ class TemplateManagementWindow(QDialog):
                         'margin_percent': 0,
                         'category': product.get('category', ''),
                         'source': product.get('mehsul_menbeyi', ''),
-                        'note': '',
+                        'note': self._build_template_note(template_item=template_item, product=product),
                         'is_custom': False,
                         'product_id': template_item.get('product_id'),
                         'quantity_round': bool(template_item.get('amount_round')),
@@ -624,6 +624,20 @@ class TemplateManagementWindow(QDialog):
             return dialog.get_selected_product(), False
         return None, bool(getattr(dialog, "skip_all", False))
 
+    def _build_template_note(self, template_item=None, product=None):
+        note = ""
+        if product:
+            note = (product.get('qeyd') or '').strip()
+        if not note and template_item:
+            note = (template_item.get('note') or '').strip()
+        if not note and template_item:
+            note = (template_item.get('generic_name') or template_item.get('name') or '').strip()
+        if not note and product:
+            note = (product.get('mehsulun_adi') or '').strip()
+        if not note:
+            note = "Qeyd yoxdur"
+        return f"Şablondan: {note}"
+
     def create_boq_item_from_selection(self, template_item, product, amount_value=1.0, price_override=None):
         """Create a Smeta item from template item and selected product"""
         currency = product.get('currency', template_item.get('currency', 'AZN')) or 'AZN'
@@ -646,7 +660,7 @@ class TemplateManagementWindow(QDialog):
             'margin_percent': 0,
             'category': product.get('category', ''),
             'source': product.get('mehsul_menbeyi', ''),
-            'note': f"Şablondan: {template_item.get('generic_name', '')}",
+            'note': self._build_template_note(template_item=template_item, product=product),
             'is_custom': False,
             'product_id': str(product['_id']),
             'quantity_round': bool(template_item.get('amount_round')),
