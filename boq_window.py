@@ -87,7 +87,9 @@ class SmetaWindow(QMainWindow):
         # Table styling
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setEditTriggers(
+            QTableWidget.EditTrigger.SelectedClicked | QTableWidget.EditTrigger.EditKeyPressed
+        )
         self.table.setSortingEnabled(True)  # Enable column sorting
         self.table.itemChanged.connect(self.on_table_item_changed)
 
@@ -109,7 +111,7 @@ class SmetaWindow(QMainWindow):
         header.setSectionResizeMode(11, QHeaderView.ResizeMode.ResizeToContents)  # Növ
 
         main_layout.addWidget(self.table)
-        self.table.cellDoubleClicked.connect(lambda *_: self.edit_item())
+        self.table.cellDoubleClicked.connect(self.on_table_double_clicked)
         self.table.installEventFilter(self)
 
         # Summary labels
@@ -387,6 +389,12 @@ class SmetaWindow(QMainWindow):
             self.boq_items[selected_row] = data
             self.refresh_table()
 
+    def on_table_double_clicked(self, row, column):
+        """Handle double click on table cells."""
+        if column in (3, 7):
+            return
+        self.edit_item()
+
     def eventFilter(self, source, event):
         if source is self.table and event.type() == event.Type.KeyPress:
             if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
@@ -503,7 +511,7 @@ class SmetaWindow(QMainWindow):
             self.table.setItem(row_position, 2, category_item)
             # Column 3: Miqdar
             quantity_item = QTableWidgetItem(f"{item['quantity']:.2f}")
-            quantity_item.setFlags(quantity_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            quantity_item.setFlags(quantity_item.flags() | Qt.ItemFlag.ItemIsEditable)
             self.table.setItem(row_position, 3, quantity_item)
             # Column 4: Ölçü Vahidi
             unit_item = QTableWidgetItem(item['unit'])
@@ -547,11 +555,43 @@ class SmetaWindow(QMainWindow):
         """Handle inline edits in the Smeta table."""
         if self._updating_table:
             return
-        if item.column() != 7:
+        if item.column() not in (3, 7):
             return
 
         row = item.row()
         if row < 0 or row >= len(self.boq_items):
+            return
+
+        if item.column() == 3:
+            text = item.text().strip().replace(',', '.')
+            if not text:
+                quantity = self.boq_items[row].get('quantity', 1)
+            else:
+                try:
+                    quantity = float(text)
+                except ValueError:
+                    quantity = self.boq_items[row].get('quantity', 1)
+
+            quantity = max(0.01, quantity)
+            self.boq_items[row]['quantity'] = quantity
+            unit_price = self.boq_items[row].get('unit_price', 0)
+            total = quantity * unit_price
+            self.boq_items[row]['total'] = total
+
+            margin_pct = self.boq_items[row].get('margin_percent', 0)
+            final_total = total * (1 + margin_pct / 100)
+
+            self._updating_table = True
+            item.setText(f"{quantity:.2f}")
+            cost_item = self.table.item(row, 6)
+            if cost_item:
+                cost_item.setText(f"{total:.2f}")
+            final_item = self.table.item(row, 8)
+            if final_item:
+                final_item.setText(f"{final_total:.2f}")
+            self._updating_table = False
+
+            self.update_summary()
             return
 
         text = item.text().strip().replace('%', '')
