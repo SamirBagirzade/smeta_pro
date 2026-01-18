@@ -89,7 +89,7 @@ class DatabaseManager:
             pass
 
     def create_product(self, mehsulun_adi, price, mehsul_menbeyi, qeyd, olcu_vahidi,
-                       category, image_id=None, currency="AZN", price_azn=None):
+                       category, image_id=None, currency="AZN", price_azn=None, price_round=False):
         """Create a new product"""
         try:
             product = {
@@ -97,6 +97,7 @@ class DatabaseManager:
                 'price': price,
                 'price_azn': price_azn if price_azn is not None else price,
                 'currency': currency or 'AZN',
+                'price_round': bool(price_round),
                 'mehsul_menbeyi': mehsul_menbeyi,
                 'qeyd': qeyd,
                 'olcu_vahidi': olcu_vahidi,
@@ -149,7 +150,7 @@ class DatabaseManager:
             raise Exception(f"Failed to get price history: {e}")
 
     def update_product(self, product_id, mehsulun_adi, price, mehsul_menbeyi, qeyd, olcu_vahidi,
-                       category, image_id=None, currency="AZN", price_azn=None):
+                       category, image_id=None, currency="AZN", price_azn=None, price_round=False):
         """Update an existing product"""
         try:
             # Handle both string and ObjectId
@@ -165,6 +166,7 @@ class DatabaseManager:
                     'price': price,
                     'price_azn': price_azn if price_azn is not None else price,
                     'currency': currency or 'AZN',
+                    'price_round': bool(price_round),
                     'mehsul_menbeyi': mehsul_menbeyi,
                     'qeyd': qeyd,
                     'olcu_vahidi': olcu_vahidi,
@@ -423,7 +425,9 @@ class DatabaseManager:
                     'product_id': item.get('product_id'),
                     'var_name': item.get('var_name', ''),
                     'amount_expr': item.get('amount_expr', '1'),
-                    'price_expr': item.get('price_expr', '')
+                    'price_expr': item.get('price_expr', ''),
+                    'amount_round': bool(item.get('amount_round')),
+                    'price_round': bool(item.get('price_round'))
                 }
                 template_items.append(template_item)
 

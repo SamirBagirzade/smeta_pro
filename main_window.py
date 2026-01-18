@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTableWidget,
     QTableWidgetItem, QPushButton, QLineEdit, QLabel, QMessageBox, QHeaderView,
-    QMenu
+    QMenu, QCheckBox
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont, QColor, QShortcut, QKeySequence
@@ -87,6 +87,12 @@ class MainWindow(QMainWindow):
         search_layout.addWidget(self.clear_search_btn)
         main_layout.addLayout(search_layout)
 
+        # ID column toggle
+        self.show_id_checkbox = QCheckBox("ID sütununu göstər")
+        self.show_id_checkbox.setChecked(False)
+        self.show_id_checkbox.stateChanged.connect(self.toggle_id_column)
+        main_layout.addWidget(self.show_id_checkbox)
+
         # Table
         self.table = QTableWidget()
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -110,6 +116,7 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)  # Məhsul Mənbəyi
         header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)  # Ölçü Vahidi
         header.setSectionResizeMode(7, QHeaderView.ResizeMode.Stretch)  # Qeyd
+        self.table.setColumnHidden(0, True)
 
         # Connect double-click to quick add to Smeta
         self.table.cellDoubleClicked.connect(self.quick_add_to_boq)
@@ -416,6 +423,10 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Xəta", f"Məhsullar yüklənə bilmədi:\n{str(e)}")
 
+    def toggle_id_column(self):
+        """Show or hide the ID column."""
+        self.table.setColumnHidden(0, not self.show_id_checkbox.isChecked())
+
     def populate_table(self, products):
         """Populate table with product data"""
         self.table.setRowCount(0)
@@ -431,17 +442,17 @@ class MainWindow(QMainWindow):
                 product.get('category', '') or 'N/A'
             ))
             currency = product.get('currency', 'AZN') or 'AZN'
-            price = float(product['price']) if product.get('price') else 0
+            price_value = product.get('price')
+            if price_value is None:
+                price_value = 0
+            price = float(price_value)
             price_azn = product.get('price_azn')
             if price_azn is None:
                 price_azn = self.currency_manager.convert_to_azn(price, currency)
-            if price:
-                if currency == "AZN":
-                    price_text = f"{price:.2f} AZN"
-                else:
-                    price_text = f"AZN {price_azn:.2f} ({price:.2f} {currency})"
+            if currency == "AZN":
+                price_text = f"{price:.2f} AZN"
             else:
-                price_text = "N/A"
+                price_text = f"AZN {price_azn:.2f} ({price:.2f} {currency})"
             self.table.setItem(row_position, 3, QTableWidgetItem(price_text))
 
             # Calculate days since price last changed
@@ -532,7 +543,8 @@ class MainWindow(QMainWindow):
                     data['category'],
                     image_id=image_id if image_id is not None else None,
                     currency=data.get('currency', 'AZN'),
-                    price_azn=data.get('price_azn')
+                    price_azn=data.get('price_azn'),
+                    price_round=data.get('price_round', False)
                 )
                 if success:
                     QMessageBox.information(self, "Uğurlu", "Məhsul uğurla yeniləndi!")
@@ -729,6 +741,7 @@ class MainWindow(QMainWindow):
             product_copy = {
                 'mehsulun_adi': product['mehsulun_adi'] + " (kopya)",
                 'price': product.get('price'),
+                'price_round': product.get('price_round'),
                 'mehsul_menbeyi': product.get('mehsul_menbeyi'),
                 'qeyd': product.get('qeyd'),
                 'olcu_vahidi': product.get('olcu_vahidi'),
@@ -757,7 +770,8 @@ class MainWindow(QMainWindow):
                     data['category'],
                     image_id=image_id,
                     currency=data.get('currency', 'AZN'),
-                    price_azn=data.get('price_azn')
+                    price_azn=data.get('price_azn'),
+                    price_round=data.get('price_round', False)
                 )
 
                 if new_product_id:

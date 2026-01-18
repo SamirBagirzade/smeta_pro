@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 import ast
+import math
 import re
 
 from dialogs import TemplateItemDialog, ProductSelectionDialog, _parse_calc_text
@@ -414,6 +415,8 @@ class TemplateManagementWindow(QDialog):
                     'var_name': item.get('var_name', ''),
                     'amount_expr': item.get('amount_expr', '1'),
                     'price_expr': item.get('price_expr', ''),
+                    'amount_round': bool(item.get('amount_round')),
+                    'price_round': bool(item.get('price_round')),
                     'unit': item.get('unit', ''),
                     'default_price': item.get('default_price', 0),
                     'currency': item.get('currency', 'AZN') or 'AZN',
@@ -478,6 +481,8 @@ class TemplateManagementWindow(QDialog):
                     errors.append(f"{label}: miqdar ifadəsi səhvdir")
                     amount_value = 1
                 amount_value = max(0.01, float(amount_value))
+                if item.get('amount_round'):
+                    amount_value = float(math.ceil(amount_value))
                 var_name = (item.get('var_name') or '').strip()
                 if var_name and var_name.lower() != "string":
                     variables[var_name] = amount_value
@@ -512,16 +517,21 @@ class TemplateManagementWindow(QDialog):
                     if price_value is None:
                         label = item.get('generic_name', item.get('name', ''))
                         errors.append(f"{label}: qiymət ifadəsi səhvdir")
+                    elif item.get('price_round'):
+                        price_value = float(math.ceil(price_value))
             resolved[idx]['price'] = price_value
 
         # Process each template item
         items_added = 0
+        skip_remaining_generic = False
         for idx, template_item in enumerate(self.template_items):
             amount_value = resolved.get(idx, {}).get('amount', 1.0)
             price_override = resolved.get(idx, {}).get('price')
             if template_item.get('is_generic') or not template_item.get('product_id'):
                 # Generic item - show product selection dialog
-                selected_product = self.select_product_for_generic(template_item)
+                selected_product = None
+                if not skip_remaining_generic:
+                    selected_product, skip_remaining_generic = self.select_product_for_generic(template_item)
                 if selected_product:
                     new_item = self.create_boq_item_from_selection(
                         template_item,
@@ -553,7 +563,9 @@ class TemplateManagementWindow(QDialog):
                         'source': '',
                         'note': f"Şablondan: {template_item.get('generic_name', '')}",
                         'is_custom': True,
-                        'product_id': None
+                        'product_id': None,
+                        'quantity_round': bool(template_item.get('amount_round')),
+                        'price_round': bool(template_item.get('price_round'))
                     }
                     self.boq_window.boq_items.append(new_item)
                     self.boq_window.next_id += 1
@@ -585,7 +597,9 @@ class TemplateManagementWindow(QDialog):
                         'source': product.get('mehsul_menbeyi', ''),
                         'note': '',
                         'is_custom': False,
-                        'product_id': template_item.get('product_id')
+                        'product_id': template_item.get('product_id'),
+                        'quantity_round': bool(template_item.get('amount_round')),
+                        'price_round': bool(template_item.get('price_round'))
                     }
                     self.boq_window.boq_items.append(new_item)
                     self.boq_window.next_id += 1
@@ -599,15 +613,16 @@ class TemplateManagementWindow(QDialog):
 
     def select_product_for_generic(self, template_item):
         """Show dialog to select a product for a generic template item"""
+        label = template_item.get('generic_name') or template_item.get('name', '') or "Generik qeyd"
         dialog = ProductSelectionDialog(
             self,
             self.db,
-            template_item.get('generic_name', ''),
+            label,
             template_item.get('category', '')
         )
         if dialog.exec():
-            return dialog.get_selected_product()
-        return None
+            return dialog.get_selected_product(), False
+        return None, bool(getattr(dialog, "skip_all", False))
 
     def create_boq_item_from_selection(self, template_item, product, amount_value=1.0, price_override=None):
         """Create a Smeta item from template item and selected product"""
@@ -633,5 +648,7 @@ class TemplateManagementWindow(QDialog):
             'source': product.get('mehsul_menbeyi', ''),
             'note': f"Şablondan: {template_item.get('generic_name', '')}",
             'is_custom': False,
-            'product_id': str(product['_id'])
+            'product_id': str(product['_id']),
+            'quantity_round': bool(template_item.get('amount_round')),
+            'price_round': bool(template_item.get('price_round'))
         }
