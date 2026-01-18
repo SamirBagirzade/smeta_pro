@@ -3,6 +3,7 @@
 import json
 import os
 from datetime import datetime, timezone
+import ast
 
 from PyQt6.QtWidgets import (
     QDialog, QFormLayout, QLineEdit, QSpinBox, QPushButton, QMessageBox,
@@ -14,6 +15,43 @@ from PyQt6.QtGui import QFont, QColor, QPixmap
 
 from db import DatabaseManager
 from currency_settings import CurrencySettingsManager
+
+
+def _safe_eval_expr(expr):
+    """Safely evaluate simple arithmetic expressions."""
+    node = ast.parse(expr, mode="eval")
+    allowed_nodes = (ast.Expression, ast.BinOp, ast.UnaryOp, ast.Num, ast.Constant)
+    allowed_ops = (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Mod, ast.Pow, ast.UAdd, ast.USub)
+
+    def _validate(n):
+        if not isinstance(n, allowed_nodes):
+            raise ValueError("Invalid expression")
+        if isinstance(n, ast.BinOp) and not isinstance(n.op, allowed_ops):
+            raise ValueError("Invalid operator")
+        if isinstance(n, ast.UnaryOp) and not isinstance(n.op, allowed_ops):
+            raise ValueError("Invalid operator")
+        for child in ast.iter_child_nodes(n):
+            _validate(child)
+
+    _validate(node)
+    value = eval(compile(node, "<expr>", "eval"), {"__builtins__": {}})
+    if not isinstance(value, (int, float)):
+        raise ValueError("Invalid result")
+    return float(value)
+
+
+def _apply_calc_to_spinbox(spinbox):
+    text = spinbox.lineEdit().text().strip()
+    if not text.startswith("="):
+        return
+    expr = text[1:].strip()
+    if not expr:
+        return
+    try:
+        value = _safe_eval_expr(expr)
+    except Exception:
+        return
+    spinbox.setValue(value)
 
 
 class DatabaseConfigDialog(QDialog):
@@ -443,6 +481,9 @@ class ProductDialog(QDialog):
         self.price_input.setDecimals(2)
         self.price_input.setSuffix("")
         layout.addRow("Qiymət:", self.price_input)
+        self.price_input.lineEdit().editingFinished.connect(
+            lambda: _apply_calc_to_spinbox(self.price_input)
+        )
 
         # Currency
         self.currency_input = QComboBox()
@@ -808,6 +849,9 @@ class SmetaItemDialog(QDialog):
         if self.mode == "add_from_db":
             self.price_input.setReadOnly(True)
         layout.addRow("Vahid Qiymət:", self.price_input)
+        self.price_input.lineEdit().editingFinished.connect(
+            lambda: _apply_calc_to_spinbox(self.price_input)
+        )
 
         # Currency
         self.currency_input = QComboBox()
@@ -1042,6 +1086,9 @@ class TemplateItemDialog(QDialog):
         self.price_input.setDecimals(2)
         self.price_input.setSuffix("")
         layout.addRow("Defolt Qiymət:", self.price_input)
+        self.price_input.lineEdit().editingFinished.connect(
+            lambda: _apply_calc_to_spinbox(self.price_input)
+        )
 
         # Currency
         self.currency_input = QComboBox()
