@@ -802,7 +802,13 @@ class MainWindow(QMainWindow):
             }
 
             # Show dialog for quantity input
-            dialog = SmetaItemDialog(self, self.db, item=item, mode="edit")
+            dialog = SmetaItemDialog(
+                self,
+                self.db,
+                item=item,
+                mode="edit",
+                string_count=self.boq_window.string_count,
+            )
             dialog.setWindowTitle(f"Smeta-a Əlavə Et: {product['mehsulun_adi']}")
 
             if dialog.exec():
@@ -857,7 +863,13 @@ class MainWindow(QMainWindow):
                 }
 
                 # Show dialog for quantity input
-                dialog = SmetaItemDialog(self, self.db, item=item, mode="edit")
+                dialog = SmetaItemDialog(
+                    self,
+                    self.db,
+                    item=item,
+                    mode="edit",
+                    string_count=self.boq_window.string_count,
+                )
                 dialog.setWindowTitle(f"Smeta-a Əlavə Et: {product['mehsulun_adi']}")
 
                 if dialog.exec():
