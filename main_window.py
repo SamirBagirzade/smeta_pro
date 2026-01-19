@@ -134,10 +134,28 @@ class MainWindow(QMainWindow):
             }
         """)
 
+        self.csv_help_btn = QPushButton("❓ CSV Kömək")
+        self.csv_help_btn.clicked.connect(self.show_csv_help)
+        self.csv_help_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #90A4AE;
+                color: #1a1a1a;
+                padding: 10px 14px;
+                border: none;
+                border-radius: 5px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #78909C;
+            }
+        """)
+
         # CSV actions (top)
         csv_layout = QHBoxLayout()
         csv_layout.addStretch()
         csv_layout.addWidget(self.import_btn)
+        csv_layout.addWidget(self.csv_help_btn)
         csv_layout.addWidget(self.export_btn)
         main_layout.addLayout(csv_layout)
 
@@ -1199,6 +1217,108 @@ class MainWindow(QMainWindow):
             "qeyd": (_pick(["qeyd", "note"]) or "").strip(),
             "olcu_vahidi": (_pick(["olcu_vahidi", "unit"]) or "").strip(),
         }
+
+    def show_csv_help(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("CSV İdxal Kömək")
+        dialog.setMinimumWidth(520)
+
+        layout = QVBoxLayout()
+        info = QLabel(
+            "CSV faylında ən azı `mehsulun_adi` sütunu olmalıdır.\n"
+            "Dublikatlar üçün idxal zamanı seçdiyiniz rejim tətbiq olunur.\n\n"
+            "İcazə verilən əsas sütunlar:\n"
+            "- id (istəyə bağlı, mövcudu yeniləmək üçün)\n"
+            "- mehsulun_adi (məcburi)\n"
+            "- category, price, currency, price_azn, price_round\n"
+            "- mehsul_menbeyi, qeyd, olcu_vahidi\n\n"
+            "price_round dəyərləri: true/false və ya 1/0"
+        )
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        button_layout = QHBoxLayout()
+        sample_btn = QPushButton("📄 Nümunə CSV Yarat")
+        sample_btn.clicked.connect(self.save_sample_csv)
+        close_btn = QPushButton("Bağla")
+        close_btn.clicked.connect(dialog.accept)
+        button_layout.addStretch()
+        button_layout.addWidget(sample_btn)
+        button_layout.addWidget(close_btn)
+        layout.addLayout(button_layout)
+
+        dialog.setLayout(layout)
+        dialog.exec()
+
+    def save_sample_csv(self):
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Nümunə CSV Saxla",
+            "sample_products.csv",
+            "CSV Files (*.csv)"
+        )
+        if not file_path:
+            return
+
+        sample_rows = [
+            {
+                "mehsulun_adi": "Cement M400",
+                "category": "Materials",
+                "price": 8.5,
+                "currency": "AZN",
+                "price_azn": "",
+                "price_round": "false",
+                "mehsul_menbeyi": "Local Supplier",
+                "qeyd": "Standard cement",
+                "olcu_vahidi": "bag",
+            },
+            {
+                "mehsulun_adi": "Steel Rebar 12mm",
+                "category": "Materials",
+                "price": 1.2,
+                "currency": "USD",
+                "price_azn": "",
+                "price_round": "false",
+                "mehsul_menbeyi": "SteelCo",
+                "qeyd": "Per meter",
+                "olcu_vahidi": "m",
+            },
+            {
+                "mehsulun_adi": "Paint White 10L",
+                "category": "Finishing",
+                "price": 25,
+                "currency": "AZN",
+                "price_azn": "",
+                "price_round": "true",
+                "mehsul_menbeyi": "ColorMix",
+                "qeyd": "Interior paint",
+                "olcu_vahidi": "can",
+            },
+        ]
+
+        headers = [
+            "id",
+            "mehsulun_adi",
+            "category",
+            "price",
+            "currency",
+            "price_azn",
+            "price_round",
+            "mehsul_menbeyi",
+            "qeyd",
+            "olcu_vahidi",
+        ]
+        try:
+            with open(file_path, "w", encoding="utf-8", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=headers)
+                writer.writeheader()
+                for row in sample_rows:
+                    data = {"id": ""}
+                    data.update(row)
+                    writer.writerow(data)
+            QMessageBox.information(self, "Uğurlu", f"Nümunə CSV saxlanıldı:\n{file_path}")
+        except Exception as e:
+            QMessageBox.warning(self, "Xəta", f"Nümunə CSV saxlanmadı:\n{str(e)}")
 
 
 class ProductTableModel(QAbstractTableModel):
