@@ -918,6 +918,43 @@ class SmetaWindow(QMainWindow):
             ws.column_dimensions['K'].width = 20
             ws.column_dimensions['L'].width = 10
 
+            # Category totals sheet
+            category_ws = wb.create_sheet(title="Category Totals")
+            category_ws["A1"] = "Kateqoriya"
+            category_ws["B1"] = "Yekun (AZN)"
+            for cell in ("A1", "B1"):
+                category_ws[cell].fill = header_fill
+                category_ws[cell].font = header_font
+                category_ws[cell].alignment = header_alignment
+                category_ws[cell].border = border
+
+            categories = []
+            seen = set()
+            for item in self.boq_items:
+                category = item.get("category", "") or "N/A"
+                if category not in seen:
+                    seen.add(category)
+                    categories.append(category)
+
+            for idx, category in enumerate(categories, start=2):
+                category_ws.cell(row=idx, column=1, value=category).border = border
+                category_ws.cell(
+                    row=idx,
+                    column=2,
+                    value=f"=SUMIF('Bill of Quantities'!$C${data_start_row}:$C${data_end_row},A{idx},'Bill of Quantities'!$I${data_start_row}:$I${data_end_row})"
+                ).border = border
+                category_ws.cell(row=idx, column=2).number_format = '0.00'
+
+            total_row = len(categories) + 2
+            category_ws.cell(row=total_row, column=1, value="CƏMİ").border = border
+            category_ws.cell(row=total_row, column=1).font = total_font
+            category_ws.cell(row=total_row, column=2, value=f"=SUM(B2:B{total_row - 1})").border = border
+            category_ws.cell(row=total_row, column=2).font = total_font
+            category_ws.cell(row=total_row, column=2).number_format = '0.00'
+
+            category_ws.column_dimensions['A'].width = 25
+            category_ws.column_dimensions['B'].width = 18
+
             # Save file
             wb.save(file_path)
 

@@ -978,6 +978,31 @@ class SmetaItemDialog(QDialog):
             self.currency_input.setEnabled(False)
         layout.addRow("Valyuta:", self.currency_input)
 
+        # Category
+        self.category_input = QLineEdit()
+        if self.mode == "add_from_db":
+            self.category_input.setReadOnly(True)
+        else:
+            self.category_input.setPlaceholderText("Kateqoriyanı daxil edin")
+        layout.addRow("Kateqoriya:", self.category_input)
+
+        # Source
+        self.source_input = QLineEdit()
+        if self.mode == "add_from_db":
+            self.source_input.setReadOnly(True)
+        else:
+            self.source_input.setPlaceholderText("Mənbə/istehsalçı")
+        layout.addRow("Mənbə:", self.source_input)
+
+        # Note
+        self.note_input = QTextEdit()
+        self.note_input.setFixedHeight(60)
+        if self.mode == "add_from_db":
+            self.note_input.setReadOnly(True)
+        else:
+            self.note_input.setPlaceholderText("Qeyd")
+        layout.addRow("Qeyd:", self.note_input)
+
         # Unit price converted to AZN
         self.price_azn_label = QLabel("0.00 AZN")
         self.price_azn_label.setStyleSheet("font-weight: bold; color: #4CAF50;")
@@ -1040,6 +1065,9 @@ class SmetaItemDialog(QDialog):
             if idx >= 0:
                 self.currency_input.setCurrentIndex(idx)
             self.margin_input.setValue(float(self.item.get('margin_percent', 0)))
+            self.category_input.setText(self.item.get('category', '') or '')
+            self.source_input.setText(self.item.get('source', '') or '')
+            self.note_input.setPlainText(self.item.get('note', '') or '')
             self._sync_quantity_from_input()
             self._sync_price_from_input()
 
@@ -1106,6 +1134,9 @@ class SmetaItemDialog(QDialog):
                 idx = self.currency_input.findText(currency)
                 if idx >= 0:
                     self.currency_input.setCurrentIndex(idx)
+                self.category_input.setText(product.get('category', '') or '')
+                self.source_input.setText(product.get('mehsul_menbeyi', '') or '')
+                self.note_input.setPlainText(product.get('qeyd', '') or '')
                 self.update_total()
                 QMessageBox.information(self, "Uğurlu", "Məhsul məlumatı yükləndi!")
             else:
@@ -1152,13 +1183,11 @@ class SmetaItemDialog(QDialog):
             'margin_percent': self.margin_input.value(),
             'quantity_round': self.quantity_round_checkbox.isChecked(),
             'price_round': self.price_round_checkbox.isChecked(),
-            'is_custom': self.item.get('is_custom') if self.item else self.mode == "custom"
+            'is_custom': self.item.get('is_custom') if self.item else self.mode == "custom",
+            'category': self.category_input.text().strip(),
+            'source': self.source_input.text().strip(),
+            'note': self.note_input.toPlainText().strip()
         }
-
-        if self.item:
-            data['category'] = self.item.get('category', '')
-            data['source'] = self.item.get('source', '')
-            data['note'] = self.item.get('note', '')
 
         return data
 

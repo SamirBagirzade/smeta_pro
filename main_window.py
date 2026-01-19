@@ -888,7 +888,9 @@ class MainWindow(QMainWindow):
                     'unit_price': product.get('price', 0),
                     'currency': product.get('currency', 'AZN') or 'AZN',
                     'unit_price_azn': product.get('price_azn'),
-                    'category': product.get('category', '')
+                    'category': product.get('category', ''),
+                    'source': product.get('mehsul_menbeyi', ''),
+                    'note': product.get('qeyd', '')
                 }
 
                 # Show dialog for quantity input
