@@ -387,7 +387,7 @@ class SmetaWindow(QMainWindow):
 
     def edit_item(self):
         """Edit selected item"""
-        if not self.isActiveWindow() or not self.table.hasFocus():
+        if not self.isActiveWindow():
             return
         selected_row = self.table.currentRow()
         if selected_row < 0:
