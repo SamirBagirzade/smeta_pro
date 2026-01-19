@@ -2,7 +2,7 @@
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget, QTableWidgetItem,
-    QHeaderView, QPushButton, QLineEdit, QMessageBox
+    QHeaderView, QPushButton, QLineEdit, QMessageBox, QInputDialog
 )
 from PyQt6.QtCore import Qt
 import ast
@@ -76,7 +76,17 @@ class TemplateManagementWindow(QDialog):
         self.delete_template_btn.clicked.connect(self.delete_template)
         self.delete_template_btn.setStyleSheet("background-color: #f44336; color: white; padding: 6px 12px; border: none; border-radius: 4px;")
 
+        self.copy_template_btn = QPushButton("📄 Kopyala")
+        self.copy_template_btn.clicked.connect(self.copy_template)
+        self.copy_template_btn.setStyleSheet("background-color: #607D8B; color: white; padding: 6px 12px; border: none; border-radius: 4px;")
+
+        self.rename_template_btn = QPushButton("✏️ Adını Dəyiş")
+        self.rename_template_btn.clicked.connect(self.rename_template)
+        self.rename_template_btn.setStyleSheet("background-color: #5D4037; color: white; padding: 6px 12px; border: none; border-radius: 4px;")
+
         template_btn_layout.addWidget(self.new_template_btn)
+        template_btn_layout.addWidget(self.copy_template_btn)
+        template_btn_layout.addWidget(self.rename_template_btn)
         template_btn_layout.addWidget(self.delete_template_btn)
         left_panel.addLayout(template_btn_layout)
 
@@ -431,6 +441,91 @@ class TemplateManagementWindow(QDialog):
             QMessageBox.information(self, "Uğurlu", f"Şablon '{template_name}' olaraq saxlanıldı!")
         except Exception as e:
             QMessageBox.critical(self, "Xəta", f"Şablon saxlanılarkən xəta: {str(e)}")
+
+    def copy_template(self):
+        """Copy selected template to a new one"""
+        selected_row = self.template_list.currentRow()
+        if selected_row < 0:
+            QMessageBox.warning(self, "Xəbərdarlıq", "Kopyalamaq üçün şablon seçin!")
+            return
+
+        template_id = self.template_list.item(selected_row, 0).data(Qt.ItemDataRole.UserRole)
+        template_name = self.template_list.item(selected_row, 0).text()
+
+        try:
+            template = self.db.load_template(template_id)
+            if not template:
+                QMessageBox.warning(self, "Xəbərdarlıq", "Şablon tapılmadı!")
+                return
+
+            new_name = self._generate_copy_name(template_name)
+            items = template.get('items', [])
+            self.db.save_template(new_name, items)
+            self.refresh_template_list()
+            self._select_template_by_name(new_name)
+            QMessageBox.information(self, "Uğurlu", f"Şablon '{new_name}' olaraq kopyalandı!")
+        except Exception as e:
+            QMessageBox.critical(self, "Xəta", f"Şablon kopyalanarkən xəta: {str(e)}")
+
+    def rename_template(self):
+        """Rename selected template"""
+        selected_row = self.template_list.currentRow()
+        if selected_row < 0:
+            QMessageBox.warning(self, "Xəbərdarlıq", "Ad dəyişmək üçün şablon seçin!")
+            return
+
+        template_id = self.template_list.item(selected_row, 0).data(Qt.ItemDataRole.UserRole)
+        template_name = self.template_list.item(selected_row, 0).text()
+
+        new_name, ok = QInputDialog.getText(
+            self,
+            "Şablon Adını Dəyiş",
+            "Yeni şablon adı:",
+            text=template_name
+        )
+        if not ok:
+            return
+        new_name = new_name.strip()
+        if not new_name:
+            QMessageBox.warning(self, "Xəbərdarlıq", "Şablon adı boş ola bilməz!")
+            return
+
+        try:
+            template = self.db.load_template(template_id)
+            if not template:
+                QMessageBox.warning(self, "Xəbərdarlıq", "Şablon tapılmadı!")
+                return
+
+            items = template.get('items', [])
+            self.db.save_template(new_name, items)
+            self.db.delete_template(template_id)
+            self.refresh_template_list()
+            self._select_template_by_name(new_name)
+            QMessageBox.information(self, "Uğurlu", f"Şablon '{new_name}' olaraq dəyişdirildi!")
+        except Exception as e:
+            QMessageBox.critical(self, "Xəta", f"Şablonun adı dəyişdirilə bilmədi: {str(e)}")
+
+    def _generate_copy_name(self, base_name):
+        try:
+            templates = self.db.get_all_templates()
+        except Exception:
+            templates = []
+        existing = {t.get('name', '') for t in templates}
+        suffix = " (kopya)"
+        candidate = f"{base_name}{suffix}"
+        counter = 2
+        while candidate in existing:
+            candidate = f"{base_name}{suffix} {counter}"
+            counter += 1
+        return candidate
+
+    def _select_template_by_name(self, name):
+        for row in range(self.template_list.rowCount()):
+            item = self.template_list.item(row, 0)
+            if item and item.text() == name:
+                self.template_list.selectRow(row)
+                self.on_template_selected()
+                return
 
     def load_to_boq(self):
         """Load template items to Smeta with product selection for generic items"""
