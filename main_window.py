@@ -1045,7 +1045,7 @@ class MainWindow(QMainWindow):
 
         try:
             with open(file_path, "r", encoding="utf-8", newline="") as f:
-                reader = csv.DictReader(f)
+                reader = csv.DictReader(f, delimiter=";")
                 if not reader.fieldnames:
                     QMessageBox.warning(self, "Xəbərdarlıq", "CSV faylında başlıq tapılmadı.")
                     return
@@ -1153,7 +1153,7 @@ class MainWindow(QMainWindow):
                 "price_last_changed",
             ]
             with open(file_path, "w", encoding="utf-8", newline="") as f:
-                writer = csv.DictWriter(f, fieldnames=headers)
+                writer = csv.DictWriter(f, fieldnames=headers, delimiter=";")
                 writer.writeheader()
                 for product in products:
                     price_last_changed = product.get("price_last_changed")
@@ -1310,7 +1310,7 @@ class MainWindow(QMainWindow):
         ]
         try:
             with open(file_path, "w", encoding="utf-8", newline="") as f:
-                writer = csv.DictWriter(f, fieldnames=headers)
+                writer = csv.DictWriter(f, fieldnames=headers, delimiter=";")
                 writer.writeheader()
                 for row in sample_rows:
                     data = {"id": ""}
