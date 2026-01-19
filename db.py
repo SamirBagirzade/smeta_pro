@@ -14,8 +14,8 @@ import gridfs
 class DatabaseManager:
     """Handles all MongoDB database operations"""
 
-    def __init__(self, host="", port=27017, database="admin",
-                 username="admin", password=""):
+    def __init__(self, host="", port=27017, database="smeta",
+                 username="", password=""):
         """
         Initialize database connection parameters
 
@@ -159,6 +159,8 @@ class DatabaseManager:
 
             # Get current product to check if price changed
             current_product = self.collection.find_one({'_id': product_id})
+            if not current_product:
+                return False
 
             update_data = {
                 '$set': {
@@ -258,6 +260,18 @@ class DatabaseManager:
             return products
         except Exception as e:
             raise Exception(f"Failed to search products: {e}")
+
+    def find_product_by_name(self, name):
+        """Find a product by exact name match"""
+        try:
+            if not name:
+                return None
+            product = self.collection.find_one({'mehsulun_adi': name})
+            if product:
+                product['id'] = str(product['_id'])
+            return product
+        except Exception as e:
+            raise Exception(f"Failed to find product: {e}")
 
     def test_connection(self):
         """Test database connection"""

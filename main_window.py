@@ -1,20 +1,21 @@
 """Main window implementation."""
 
+import csv
 import sys
 from datetime import datetime, timezone
 
 from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTableWidget,
-    QTableWidgetItem, QPushButton, QLineEdit, QLabel, QMessageBox, QHeaderView,
-    QMenu, QCheckBox
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTableView,
+    QPushButton, QLineEdit, QLabel, QMessageBox, QHeaderView,
+    QMenu, QCheckBox, QFileDialog, QDialog
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, QAbstractTableModel, QSortFilterProxyModel
 from PyQt6.QtGui import QFont, QColor, QShortcut, QKeySequence
 
 from db import DatabaseManager
 from dialogs import (
-    DatabaseConfigDialog, ImageViewerDialog, PriceHistoryDialog, ProductDialog,
-    SmetaItemDialog
+    CsvImportOptionsDialog, DatabaseConfigDialog, ImageViewerDialog,
+    PriceHistoryDialog, ProductDialog, SmetaItemDialog
 )
 from boq_window import SmetaWindow
 from project_window import ProjectWindow
@@ -31,6 +32,10 @@ class MainWindow(QMainWindow):
         self.boq_window = None  # Single Smeta window instance
         self.project_window = None  # Single Project window instance
         self.currency_manager = CurrencySettingsManager()
+        self.table_model = ProductTableModel(self.currency_manager)
+        self.proxy_model = ProductFilterProxyModel()
+        self.proxy_model.setSourceModel(self.table_model)
+        self.proxy_model.setSortRole(Qt.ItemDataRole.UserRole)
 
         # Create a timer for search debouncing
         self.search_timer = QTimer()
@@ -87,6 +92,55 @@ class MainWindow(QMainWindow):
         search_layout.addWidget(self.clear_search_btn)
         main_layout.addLayout(search_layout)
 
+        self.import_btn = QPushButton("⬆️ CSV İdxal")
+        self.import_btn.clicked.connect(self.import_products_csv)
+        self.import_btn.setEnabled(False)
+        self.import_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #455A64;
+                color: white;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 5px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #37474F;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+            }
+        """)
+
+        self.export_btn = QPushButton("⬇️ CSV İxrac")
+        self.export_btn.clicked.connect(self.export_products_csv)
+        self.export_btn.setEnabled(False)
+        self.export_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #546E7A;
+                color: white;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 5px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #455A64;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+            }
+        """)
+
+        # CSV actions (top)
+        csv_layout = QHBoxLayout()
+        csv_layout.addStretch()
+        csv_layout.addWidget(self.import_btn)
+        csv_layout.addWidget(self.export_btn)
+        main_layout.addLayout(csv_layout)
+
         # ID column toggle
         self.show_id_checkbox = QCheckBox("ID sütununu göstər")
         self.show_id_checkbox.setChecked(False)
@@ -94,17 +148,15 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.show_id_checkbox)
 
         # Table
-        self.table = QTableWidget()
+        self.table = QTableView()
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.table.setColumnCount(8)
-        self.table.setHorizontalHeaderLabels([
-            "ID", "Məhsulun Adı", "Kateqoriya", "Qiymət", "Qiymət Dəyişdi (Gün)", "Məhsul Mənbəyi", "Ölçü Vahidi", "Qeyd"
-        ])
+        self.table.setModel(self.proxy_model)
 
         # Table styling
         self.table.setAlternatingRowColors(True)
-        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
+        self.table.setEditTriggers(QTableView.EditTrigger.NoEditTriggers)
+        self.table.setSortingEnabled(True)
 
         # Resize columns
         header = self.table.horizontalHeader()
@@ -119,8 +171,8 @@ class MainWindow(QMainWindow):
         self.table.setColumnHidden(0, True)
 
         # Connect double-click to quick add to Smeta
-        self.table.cellDoubleClicked.connect(self.quick_add_to_boq)
-        self.table.cellClicked.connect(lambda *_: self.table.setFocus())
+        self.table.doubleClicked.connect(self.quick_add_to_boq)
+        self.table.clicked.connect(lambda *_: self.table.setFocus())
         self.table.installEventFilter(self)
         # Enter handling is implemented via eventFilter on the table.
 
@@ -331,7 +383,7 @@ class MainWindow(QMainWindow):
             QMainWindow {
                 background-color: #f5f5f5;
             }
-            QTableWidget {
+            QTableView {
                 background-color: white;
                 border: 1px solid #ddd;
                 border-radius: 5px;
@@ -387,6 +439,7 @@ class MainWindow(QMainWindow):
             try:
                 self.db = DatabaseManager(**config)
                 self.currency_manager = CurrencySettingsManager(self.db)
+                self.table_model.set_currency_manager(self.currency_manager)
                 user_display = f"{config['username']}@" if config['username'] else ""
                 self.connection_label.setText(
                     f"🟢 Qoşuldu: {user_display}{config['host']}:{config['port']}/{config['database']}"
@@ -399,6 +452,8 @@ class MainWindow(QMainWindow):
                 self.delete_btn.setEnabled(True)
                 self.add_to_boq_btn.setEnabled(True)
                 self.refresh_btn.setEnabled(True)
+                self.import_btn.setEnabled(True)
+                self.export_btn.setEnabled(True)
 
                 self.load_products()
 
@@ -418,8 +473,7 @@ class MainWindow(QMainWindow):
             products = self.db.read_all_products()
             self.populate_table(products)
             if not preserve_status:
-                self.info_label.setText(f"Cəmi məhsul sayı: {len(products)}")
-                self.info_label.setStyleSheet("color: #666; font-style: italic;")
+                self._update_info_label(filtered=bool(self.search_input.text().strip()))
         except Exception as e:
             QMessageBox.critical(self, "Xəta", f"Məhsullar yüklənə bilmədi:\n{str(e)}")
 
@@ -429,66 +483,8 @@ class MainWindow(QMainWindow):
 
     def populate_table(self, products):
         """Populate table with product data"""
-        self.table.setRowCount(0)
-
-        for product in products:
-            row_position = self.table.rowCount()
-            self.table.insertRow(row_position)
-
-            # Store the ObjectId string in the table
-            self.table.setItem(row_position, 0, QTableWidgetItem(product['id']))
-            self.table.setItem(row_position, 1, QTableWidgetItem(product['mehsulun_adi']))
-            self.table.setItem(row_position, 2, QTableWidgetItem(
-                product.get('category', '') or 'N/A'
-            ))
-            currency = product.get('currency', 'AZN') or 'AZN'
-            price_value = product.get('price')
-            if price_value is None:
-                price_value = 0
-            price = float(price_value)
-            price_azn = product.get('price_azn')
-            if price_azn is None:
-                price_azn = self.currency_manager.convert_to_azn(price, currency)
-            if currency == "AZN":
-                price_text = f"{price:.2f} AZN"
-            else:
-                price_text = f"{price_azn:.2f} AZN ({price:.2f} {currency})"
-            self.table.setItem(row_position, 3, QTableWidgetItem(price_text))
-
-            # Calculate days since price last changed
-            price_last_changed = product.get('price_last_changed')
-            if price_last_changed:
-                # Handle both timezone-aware and naive datetime
-                if price_last_changed.tzinfo is None:
-                    price_last_changed = price_last_changed.replace(tzinfo=timezone.utc)
-
-                now = datetime.now(timezone.utc)
-                days_since_change = (now - price_last_changed).days
-
-                # Color code based on days
-                days_item = QTableWidgetItem(str(days_since_change))
-                if days_since_change > 365:
-                    days_item.setForeground(QColor(211, 47, 47))  # Red for over a year
-                elif days_since_change > 180:
-                    days_item.setForeground(QColor(255, 152, 0))  # Orange for over 6 months
-                elif days_since_change > 90:
-                    days_item.setForeground(QColor(255, 193, 7))  # Yellow for over 3 months
-                else:
-                    days_item.setForeground(QColor(76, 175, 80))  # Green for recent
-
-                self.table.setItem(row_position, 4, days_item)
-            else:
-                self.table.setItem(row_position, 4, QTableWidgetItem("N/A"))
-
-            self.table.setItem(row_position, 5, QTableWidgetItem(
-                product.get('mehsul_menbeyi', '') or 'N/A'
-            ))
-            self.table.setItem(row_position, 6, QTableWidgetItem(
-                product.get('olcu_vahidi', '') or 'N/A'
-            ))
-            self.table.setItem(row_position, 7, QTableWidgetItem(
-                product.get('qeyd', '') or 'N/A'
-            ))
+        self.table_model.set_products(products)
+        self._refresh_filter_state()
 
     def add_product(self):
         """Open dialog to add new product"""
@@ -505,13 +501,13 @@ class MainWindow(QMainWindow):
         if not self.db:
             return
 
-        selected_row = self.table.currentRow()
+        product = self._current_product()
 
-        if selected_row < 0:
+        if not product:
             QMessageBox.warning(self, "Xəbərdarlıq", "Zəhmət olmasa redaktə etmək üçün məhsul seçin!")
             return
 
-        product_id = self.table.item(selected_row, 0).text()
+        product_id = product['id']
 
         try:
             product = self.db.read_product(product_id)
@@ -560,19 +556,16 @@ class MainWindow(QMainWindow):
             return
 
         # Get all selected rows
-        selected_rows = self.table.selectionModel().selectedRows()
+        selected_products = self._selected_products()
 
-        if not selected_rows:
+        if not selected_products:
             QMessageBox.warning(self, "Xəbərdarlıq", "Zəhmət olmasa silmək üçün məhsul seçin!")
             return
 
         # Collect product IDs and names
         products_to_delete = []
-        for index in selected_rows:
-            row = index.row()
-            product_id = self.table.item(row, 0).text()
-            product_name = self.table.item(row, 1).text()
-            products_to_delete.append((product_id, product_name))
+        for product in selected_products:
+            products_to_delete.append((product['id'], product['mehsulun_adi']))
 
         # Confirm deletion
         if len(products_to_delete) == 1:
@@ -617,14 +610,14 @@ class MainWindow(QMainWindow):
         if not self.db:
             return
 
-        selected_row = self.table.currentRow()
-        if selected_row < 0:
+        product = self._current_product()
+        if not product:
             return
 
         try:
             # Get product ID from the selected row
-            product_id = self.table.item(selected_row, 0).text()
-            product_name = self.table.item(selected_row, 1).text()
+            product_id = product['id']
+            product_name = product['mehsulun_adi']
 
             # Retrieve product data
             product = self.db.read_product(product_id)
@@ -655,13 +648,13 @@ class MainWindow(QMainWindow):
         if not self.db:
             return
 
-        selected_row = self.table.currentRow()
-        if selected_row < 0:
+        product = self._current_product()
+        if not product:
             return
 
         try:
-            product_id = self.table.item(selected_row, 0).text()
-            product_name = self.table.item(selected_row, 1).text()
+            product_id = product['id']
+            product_name = product['mehsulun_adi']
 
             product = self.db.read_product(product_id)
             if not product:
@@ -724,13 +717,13 @@ class MainWindow(QMainWindow):
         if not self.db:
             return
 
-        selected_row = self.table.currentRow()
-        if selected_row < 0:
+        product = self._current_product()
+        if not product:
             return
 
         try:
             # Get product ID and data
-            product_id = self.table.item(selected_row, 0).text()
+            product_id = product['id']
             product = self.db.read_product(product_id)
 
             if not product:
@@ -783,7 +776,7 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Xəta", f"Məhsul kopyalanarkən xəta:\n{str(e)}")
 
-    def quick_add_to_boq(self, row, column):
+    def quick_add_to_boq(self, index):
         """Quick add product to Smeta on double-click"""
         if not self.db:
             QMessageBox.warning(self, "Xəta", "Verilənlər bazasına qoşulmayıbsınız!")
@@ -795,7 +788,12 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            product_id = self.table.item(row, 0).text()
+            source_index = self.proxy_model.mapToSource(index)
+            product = self.table_model.product_at(source_index.row())
+            if not product:
+                QMessageBox.warning(self, "Xəta", "Məhsul tapılmadı!")
+                return
+            product_id = product['id']
             product = self.db.read_product(product_id)
 
             if not product:
@@ -848,15 +846,14 @@ class MainWindow(QMainWindow):
             return
 
         # Get all selected rows
-        selected_rows = self.table.selectionModel().selectedRows()
-        if not selected_rows:
+        selected_products = self._selected_products()
+        if not selected_products:
             return
 
         # Process each selected product
         added_count = 0
-        for index in selected_rows:
-            row = index.row()
-            product_id = self.table.item(row, 0).text()
+        for product in selected_products:
+            product_id = product['id']
 
             try:
                 # Load product from database
@@ -925,23 +922,15 @@ class MainWindow(QMainWindow):
             return
 
         search_term = self.search_input.text().strip()
-
-        if not search_term:
-            self.load_products()
-            return
-
-        try:
-            products = self.db.search_products(search_term)
-            self.populate_table(products)
-            self.info_label.setText(f"Axtarış nəticəsi: {len(products)} məhsul tapıldı")
-        except Exception as e:
-            QMessageBox.critical(self, "Xəta", f"Axtarış zamanı xəta:\n{str(e)}")
+        self.proxy_model.set_search_text(search_term)
+        self._update_info_label(filtered=True)
 
     def clear_search(self):
         """Clear search and reload all products"""
         self.search_timer.stop()  # Stop any pending search
         self.search_input.clear()
-        self.load_products()
+        self.proxy_model.set_search_text("")
+        self._update_info_label(filtered=False)
 
     def show_status(self, message, color="#4CAF50", duration=3000):
         """Show a temporary status message at the bottom"""
@@ -956,9 +945,7 @@ class MainWindow(QMainWindow):
         """Clear status message and show product count"""
         if self.db:
             try:
-                products = self.db.read_all_products()
-                self.info_label.setText(f"Cəmi məhsul sayı: {len(products)}")
-                self.info_label.setStyleSheet("color: #666; font-style: italic;")
+                self._update_info_label(filtered=bool(self.search_input.text().strip()))
             except Exception:
                 pass
 
@@ -990,3 +977,377 @@ class MainWindow(QMainWindow):
         """Open currency settings dialog"""
         dialog = CurrencySettingsDialog(self, self.db)
         dialog.exec()
+        self.table_model.layoutChanged.emit()
+
+    def _current_product(self):
+        index = self.table.currentIndex()
+        if not index.isValid():
+            return None
+        source_index = self.proxy_model.mapToSource(index)
+        return self.table_model.product_at(source_index.row())
+
+    def _selected_products(self):
+        selected_rows = self.table.selectionModel().selectedRows()
+        products = []
+        for index in selected_rows:
+            source_index = self.proxy_model.mapToSource(index)
+            product = self.table_model.product_at(source_index.row())
+            if product:
+                products.append(product)
+        return products
+
+    def _refresh_filter_state(self):
+        self.proxy_model.set_search_text(self.search_input.text().strip())
+        self._update_info_label(filtered=bool(self.search_input.text().strip()))
+
+    def _update_info_label(self, filtered=False):
+        if filtered:
+            self.info_label.setText(f"Axtarış nəticəsi: {self.proxy_model.rowCount()} məhsul tapıldı")
+        else:
+            self.info_label.setText(f"Cəmi məhsul sayı: {self.table_model.rowCount()}")
+        self.info_label.setStyleSheet("color: #666; font-style: italic;")
+
+    def import_products_csv(self):
+        if not self.db:
+            return
+
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "CSV İdxal Et",
+            "",
+            "CSV Files (*.csv)"
+        )
+        if not file_path:
+            return
+
+        options_dialog = CsvImportOptionsDialog(self)
+        if options_dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        mode = options_dialog.mode()
+
+        try:
+            with open(file_path, "r", encoding="utf-8", newline="") as f:
+                reader = csv.DictReader(f)
+                if not reader.fieldnames:
+                    QMessageBox.warning(self, "Xəbərdarlıq", "CSV faylında başlıq tapılmadı.")
+                    return
+
+                created = updated = skipped = failed = 0
+                for row in reader:
+                    if not row:
+                        continue
+                    product_data = self._parse_csv_row(row)
+                    if not product_data:
+                        failed += 1
+                        continue
+
+                    existing = None
+                    if product_data.get("id"):
+                        try:
+                            existing = self.db.read_product(product_data["id"])
+                        except Exception:
+                            existing = None
+                    if not existing and product_data.get("mehsulun_adi"):
+                        existing = self.db.find_product_by_name(product_data["mehsulun_adi"])
+
+                    if existing and mode == "skip":
+                        skipped += 1
+                        continue
+
+                    if existing and mode == "update":
+                        merged = existing.copy()
+                        merged.update(product_data)
+                        success = self.db.update_product(
+                            merged["id"],
+                            merged.get("mehsulun_adi", ""),
+                            merged.get("price", 0),
+                            merged.get("mehsul_menbeyi", ""),
+                            merged.get("qeyd", ""),
+                            merged.get("olcu_vahidi", ""),
+                            merged.get("category", ""),
+                            image_id=None,
+                            currency=merged.get("currency", "AZN"),
+                            price_azn=merged.get("price_azn"),
+                            price_round=merged.get("price_round", False)
+                        )
+                        if success:
+                            updated += 1
+                        else:
+                            failed += 1
+                        continue
+
+                    new_id = self.db.create_product(
+                        product_data.get("mehsulun_adi", ""),
+                        product_data.get("price", 0),
+                        product_data.get("mehsul_menbeyi", ""),
+                        product_data.get("qeyd", ""),
+                        product_data.get("olcu_vahidi", ""),
+                        product_data.get("category", ""),
+                        image_id=None,
+                        currency=product_data.get("currency", "AZN"),
+                        price_azn=product_data.get("price_azn"),
+                        price_round=product_data.get("price_round", False)
+                    )
+                    if new_id:
+                        created += 1
+                    else:
+                        failed += 1
+
+            self.load_products()
+            QMessageBox.information(
+                self,
+                "Uğurlu",
+                "CSV idxalı tamamlandı.\n"
+                f"Yaradıldı: {created}\n"
+                f"Yeniləndi: {updated}\n"
+                f"Keçildi: {skipped}\n"
+                f"Xəta: {failed}"
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Xəta", f"CSV idxalı alınmadı:\n{str(e)}")
+
+    def export_products_csv(self):
+        if not self.db:
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "CSV İxrac Et",
+            "products.csv",
+            "CSV Files (*.csv)"
+        )
+        if not file_path:
+            return
+
+        try:
+            products = self.db.read_all_products()
+            headers = [
+                "id",
+                "mehsulun_adi",
+                "category",
+                "price",
+                "currency",
+                "price_azn",
+                "price_round",
+                "mehsul_menbeyi",
+                "qeyd",
+                "olcu_vahidi",
+                "price_last_changed",
+            ]
+            with open(file_path, "w", encoding="utf-8", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=headers)
+                writer.writeheader()
+                for product in products:
+                    price_last_changed = product.get("price_last_changed")
+                    if price_last_changed:
+                        if price_last_changed.tzinfo is None:
+                            price_last_changed = price_last_changed.replace(tzinfo=timezone.utc)
+                        price_last_changed = price_last_changed.isoformat()
+                    writer.writerow({
+                        "id": product.get("id"),
+                        "mehsulun_adi": product.get("mehsulun_adi"),
+                        "category": product.get("category", ""),
+                        "price": product.get("price", 0),
+                        "currency": product.get("currency", "AZN"),
+                        "price_azn": product.get("price_azn", ""),
+                        "price_round": bool(product.get("price_round", False)),
+                        "mehsul_menbeyi": product.get("mehsul_menbeyi", ""),
+                        "qeyd": product.get("qeyd", ""),
+                        "olcu_vahidi": product.get("olcu_vahidi", ""),
+                        "price_last_changed": price_last_changed or "",
+                    })
+
+            QMessageBox.information(self, "Uğurlu", f"CSV ixrac edildi:\n{file_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Xəta", f"CSV ixracı alınmadı:\n{str(e)}")
+
+    def _parse_csv_row(self, row):
+        def _pick(keys):
+            for key in keys:
+                if key in row and row[key] != "":
+                    return row[key]
+            return None
+
+        product_name = _pick(["mehsulun_adi", "name", "product_name"])
+        if not product_name:
+            return None
+
+        price_value = _pick(["price"])
+        try:
+            price = float(str(price_value).replace(",", ".")) if price_value is not None else 0.0
+        except ValueError:
+            price = 0.0
+
+        price_azn_value = _pick(["price_azn"])
+        try:
+            price_azn = float(str(price_azn_value).replace(",", ".")) if price_azn_value not in (None, "") else None
+        except ValueError:
+            price_azn = None
+
+        price_round_value = _pick(["price_round"])
+        price_round = str(price_round_value).strip().lower() in ("1", "true", "yes") if price_round_value is not None else False
+
+        return {
+            "id": _pick(["id", "_id"]),
+            "mehsulun_adi": product_name.strip(),
+            "category": (_pick(["category"]) or "").strip(),
+            "price": price,
+            "currency": (_pick(["currency"]) or "AZN").strip() or "AZN",
+            "price_azn": price_azn,
+            "price_round": price_round,
+            "mehsul_menbeyi": (_pick(["mehsul_menbeyi", "source"]) or "").strip(),
+            "qeyd": (_pick(["qeyd", "note"]) or "").strip(),
+            "olcu_vahidi": (_pick(["olcu_vahidi", "unit"]) or "").strip(),
+        }
+
+
+class ProductTableModel(QAbstractTableModel):
+    headers = [
+        "ID", "Məhsulun Adı", "Kateqoriya", "Qiymət",
+        "Qiymət Dəyişdi (Gün)", "Məhsul Mənbəyi", "Ölçü Vahidi", "Qeyd"
+    ]
+
+    def __init__(self, currency_manager, products=None, parent=None):
+        super().__init__(parent)
+        self.currency_manager = currency_manager
+        self._products = list(products or [])
+
+    def set_currency_manager(self, manager):
+        self.currency_manager = manager
+        self.layoutChanged.emit()
+
+    def set_products(self, products):
+        self.beginResetModel()
+        self._products = list(products)
+        self.endResetModel()
+
+    def rowCount(self, parent=None):
+        return len(self._products)
+
+    def columnCount(self, parent=None):
+        return len(self.headers)
+
+    def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
+        if role != Qt.ItemDataRole.DisplayRole:
+            return None
+        if orientation == Qt.Orientation.Horizontal:
+            return self.headers[section]
+        return section + 1
+
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+        if not index.isValid():
+            return None
+        product = self._products[index.row()]
+        column = index.column()
+
+        if role == Qt.ItemDataRole.ForegroundRole and column == 4:
+            days_since = self._days_since_change(product)
+            if days_since is None:
+                return None
+            if days_since > 365:
+                return QColor(211, 47, 47)
+            if days_since > 180:
+                return QColor(255, 152, 0)
+            if days_since > 90:
+                return QColor(255, 193, 7)
+            return QColor(76, 175, 80)
+
+        if role == Qt.ItemDataRole.UserRole:
+            if column == 3:
+                return self._price_sort_value(product)
+            if column == 4:
+                days = self._days_since_change(product)
+                return days if days is not None else 10**9
+            return self._display_value(product, column)
+
+        if role == Qt.ItemDataRole.DisplayRole:
+            return self._display_value(product, column)
+
+        return None
+
+    def product_at(self, row):
+        if row < 0 or row >= len(self._products):
+            return None
+        return self._products[row]
+
+    def _display_value(self, product, column):
+        if column == 0:
+            return product.get("id", "")
+        if column == 1:
+            return product.get("mehsulun_adi", "")
+        if column == 2:
+            return product.get("category", "") or "N/A"
+        if column == 3:
+            return self._price_display(product)
+        if column == 4:
+            days_since = self._days_since_change(product)
+            return str(days_since) if days_since is not None else "N/A"
+        if column == 5:
+            return product.get("mehsul_menbeyi", "") or "N/A"
+        if column == 6:
+            return product.get("olcu_vahidi", "") or "N/A"
+        if column == 7:
+            return product.get("qeyd", "") or "N/A"
+        return ""
+
+    def _price_display(self, product):
+        currency = product.get("currency", "AZN") or "AZN"
+        price_value = product.get("price")
+        if price_value is None:
+            price_value = 0
+        price = float(price_value)
+        price_azn = product.get("price_azn")
+        if price_azn is None:
+            price_azn = self.currency_manager.convert_to_azn(price, currency)
+        if currency == "AZN":
+            return f"{price:.2f} AZN"
+        return f"{price_azn:.2f} AZN ({price:.2f} {currency})"
+
+    def _price_sort_value(self, product):
+        currency = product.get("currency", "AZN") or "AZN"
+        price_value = product.get("price")
+        if price_value is None:
+            price_value = 0
+        price = float(price_value)
+        price_azn = product.get("price_azn")
+        if price_azn is None:
+            price_azn = self.currency_manager.convert_to_azn(price, currency)
+        return float(price_azn or 0)
+
+    def _days_since_change(self, product):
+        price_last_changed = product.get("price_last_changed")
+        if not price_last_changed:
+            return None
+        if price_last_changed.tzinfo is None:
+            price_last_changed = price_last_changed.replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        return (now - price_last_changed).days
+
+
+class ProductFilterProxyModel(QSortFilterProxyModel):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._search_text = ""
+        self.setFilterCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+
+    def set_search_text(self, text):
+        self._search_text = (text or "").strip().lower()
+        self.invalidateFilter()
+
+    def filterAcceptsRow(self, source_row, source_parent):
+        if not self._search_text:
+            return True
+        model = self.sourceModel()
+        product = model.product_at(source_row)
+        if not product:
+            return False
+        haystacks = [
+            product.get("id", ""),
+            product.get("mehsulun_adi", ""),
+            product.get("category", ""),
+            product.get("mehsul_menbeyi", ""),
+            product.get("qeyd", ""),
+            product.get("olcu_vahidi", ""),
+        ]
+        joined = " ".join(str(value) for value in haystacks if value)
+        return self._search_text in joined.lower()

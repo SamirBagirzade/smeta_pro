@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QDialog, QFormLayout, QLineEdit, QSpinBox, QPushButton, QMessageBox,
     QHBoxLayout, QVBoxLayout, QLabel, QTextEdit, QFileDialog,
     QScrollArea, QTableWidget, QTableWidgetItem, QHeaderView, QComboBox,
-    QDoubleSpinBox, QCheckBox
+    QDoubleSpinBox, QCheckBox, QRadioButton, QButtonGroup
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont, QColor, QPixmap
@@ -98,11 +98,11 @@ class DatabaseConfigDialog(QDialog):
         layout.addRow("Port:", self.port_input)
 
         # Database
-        self.database_input = QLineEdit("admin")
+        self.database_input = QLineEdit("smeta")
         layout.addRow("Database:", self.database_input)
 
         # User (optional)
-        self.user_input = QLineEdit("admin")
+        self.user_input = QLineEdit("")
         layout.addRow("İstifadəçi:", self.user_input)
 
         # Password (optional)
@@ -110,6 +110,9 @@ class DatabaseConfigDialog(QDialog):
         self.password_input.setPlaceholderText("Şifrə (istəyə bağlı)")
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
         layout.addRow("Şifrə:", self.password_input)
+
+        self.remember_password_checkbox = QCheckBox("Şifrəni yadda saxla")
+        layout.addRow("", self.remember_password_checkbox)
 
         # Save credentials checkbox
         self.save_credentials_checkbox = QPushButton("💾 Məlumatları Yadda Saxla")
@@ -223,9 +226,10 @@ class DatabaseConfigDialog(QDialog):
                 # Load values into inputs
                 self.host_input.setText(config.get('host', ''))
                 self.port_input.setValue(config.get('port', 27017))
-                self.database_input.setText(config.get('database', 'admin'))
-                self.user_input.setText(config.get('username', 'admin'))
+                self.database_input.setText(config.get('database', 'smeta'))
+                self.user_input.setText(config.get('username', ''))
                 self.password_input.setText(config.get('password', ''))
+                self.remember_password_checkbox.setChecked(bool(config.get('password')))
 
                 # Check the save button if config exists
                 self.save_credentials_checkbox.setChecked(True)
@@ -240,7 +244,7 @@ class DatabaseConfigDialog(QDialog):
                 'port': self.port_input.value(),
                 'database': self.database_input.text().strip(),
                 'username': self.user_input.text().strip(),
-                'password': self.password_input.text()
+                'password': self.password_input.text() if self.remember_password_checkbox.isChecked() else ""
             }
 
             with open(self.config_file, 'w', encoding='utf-8') as f:
@@ -271,6 +275,57 @@ class DatabaseConfigDialog(QDialog):
             'username': self.user_input.text().strip(),
             'password': self.password_input.text()
         }
+
+
+class CsvImportOptionsDialog(QDialog):
+    """Dialog to choose CSV import duplicate handling."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("CSV İdxal Parametrləri")
+        self.setMinimumWidth(380)
+        self._mode = "update"
+        self._init_ui()
+
+    def _init_ui(self):
+        layout = QVBoxLayout()
+
+        label = QLabel("Dublikat məhsullar üçün davranış seçin:")
+        layout.addWidget(label)
+
+        group = QButtonGroup(self)
+        self.update_radio = QRadioButton("Mövcudu yenilə (ID və ya ad ilə)")
+        self.skip_radio = QRadioButton("Mövcudları keç")
+        self.create_radio = QRadioButton("Həmişə yeni yarat")
+
+        self.update_radio.setChecked(True)
+
+        group.addButton(self.update_radio)
+        group.addButton(self.skip_radio)
+        group.addButton(self.create_radio)
+
+        layout.addWidget(self.update_radio)
+        layout.addWidget(self.skip_radio)
+        layout.addWidget(self.create_radio)
+
+        button_layout = QHBoxLayout()
+        ok_btn = QPushButton("Davam et")
+        ok_btn.clicked.connect(self.accept)
+        cancel_btn = QPushButton("Ləğv et")
+        cancel_btn.clicked.connect(self.reject)
+        button_layout.addStretch()
+        button_layout.addWidget(ok_btn)
+        button_layout.addWidget(cancel_btn)
+        layout.addLayout(button_layout)
+
+        self.setLayout(layout)
+
+    def mode(self):
+        if self.skip_radio.isChecked():
+            return "skip"
+        if self.create_radio.isChecked():
+            return "create"
+        return "update"
 
 
 class ImageViewerDialog(QDialog):
