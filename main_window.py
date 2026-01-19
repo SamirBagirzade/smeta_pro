@@ -1058,6 +1058,7 @@ class MainWindow(QMainWindow):
                     if not product_data:
                         failed += 1
                         continue
+                    product_data = self._normalize_import_prices(product_data)
 
                     existing = None
                     if product_data.get("id"):
@@ -1075,6 +1076,7 @@ class MainWindow(QMainWindow):
                     if existing and mode == "update":
                         merged = existing.copy()
                         merged.update(product_data)
+                        merged = self._normalize_import_prices(merged)
                         success = self.db.update_product(
                             merged["id"],
                             merged.get("mehsulun_adi", ""),
@@ -1217,6 +1219,19 @@ class MainWindow(QMainWindow):
             "qeyd": (_pick(["qeyd", "note"]) or "").strip(),
             "olcu_vahidi": (_pick(["olcu_vahidi", "unit"]) or "").strip(),
         }
+
+    def _normalize_import_prices(self, product_data):
+        currency = product_data.get("currency", "AZN") or "AZN"
+        price = product_data.get("price", 0) or 0
+        price_azn = product_data.get("price_azn")
+        if price_azn is None and currency != "AZN":
+            price_azn = self.currency_manager.convert_to_azn(price, currency)
+        if price_azn is None:
+            price_azn = price
+        product_data["currency"] = currency
+        product_data["price"] = price
+        product_data["price_azn"] = price_azn
+        return product_data
 
     def show_csv_help(self):
         dialog = QDialog(self)
