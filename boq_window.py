@@ -88,7 +88,7 @@ class SmetaWindow(QMainWindow):
         self.string_input.valueChanged.connect(self.update_string_count)
 
         # AC Breaker Wizard button
-        self.ac_breaker_btn = QPushButton("⚡ AC Breaker Wizard")
+        self.ac_breaker_btn = QPushButton("⚡ AC Avtomat Sehirbazı")
         self.ac_breaker_btn.clicked.connect(self.open_ac_breaker_wizard)
         self.ac_breaker_btn.setStyleSheet("""
             QPushButton {
@@ -413,14 +413,14 @@ class SmetaWindow(QMainWindow):
     def open_ac_breaker_wizard(self):
         """Collect inverter specs, calculate breaker ratings, and add to BoQ."""
         dialog = QDialog(self)
-        dialog.setWindowTitle("AC Breaker Wizard")
+        dialog.setWindowTitle("AC Avtomat Sehirbazı")
         layout = QVBoxLayout()
 
         form_layout = QFormLayout()
         phase_layout = QHBoxLayout()
 
-        single_phase_radio = QRadioButton("Single phase (220V)")
-        three_phase_radio = QRadioButton("3 phase (380V)")
+        single_phase_radio = QRadioButton("Tək faza (220V)")
+        three_phase_radio = QRadioButton("3 faza (380V)")
         single_phase_radio.setChecked(True)
 
         phase_group = QButtonGroup(dialog)
@@ -436,8 +436,8 @@ class SmetaWindow(QMainWindow):
         inverter_spin.setValue(1)
         inverter_spin.setMaximumWidth(120)
 
-        form_layout.addRow("Phase:", phase_layout)
-        form_layout.addRow("Inverter count:", inverter_spin)
+        form_layout.addRow("Faza:", phase_layout)
+        form_layout.addRow("İnverter sayı:", inverter_spin)
         layout.addLayout(form_layout)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
@@ -458,8 +458,8 @@ class SmetaWindow(QMainWindow):
         for idx in range(inverter_count):
             kw_value, ok = QInputDialog.getDouble(
                 self,
-                f"Inverter {idx + 1} kW",
-                "Enter kW:",
+                f"İnverter {idx + 1} kVt",
+                "kVt daxil edin:",
                 decimals=2,
                 min=0.0,
                 max=1e9
@@ -475,7 +475,7 @@ class SmetaWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 "Məlumat",
-                "Bəzi invertrlər üçün hesablanan cərəyan maksimum breaker dəyərini keçdi. "
+                "Bəzi invertrlər üçün hesablanan cərəyan maksimum avtomat dəyərini keçdi. "
                 f"{self._breaker_ratings[-1]}A istifadə edildi."
             )
 
