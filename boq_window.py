@@ -499,7 +499,7 @@ class SmetaWindow(QMainWindow):
                     'quantity_round': True,
                     'price_round': False,
                     'is_custom': True,
-                    'category': "AC Breaker",
+                    'category': "Elektrik;AC Mühafizə",
                     'source': "",
                     'note': ""
                 }
