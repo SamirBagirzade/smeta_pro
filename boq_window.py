@@ -2,11 +2,13 @@
 
 import os
 from datetime import timezone
+import math
 
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QTableWidget, QTableWidgetItem, QPushButton, QHeaderView, QMessageBox,
-    QDialog, QSpinBox
+    QDialog, QSpinBox, QDialogButtonBox, QRadioButton, QButtonGroup,
+    QFormLayout, QInputDialog
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QShortcut, QKeySequence
@@ -29,6 +31,10 @@ class SmetaWindow(QMainWindow):
         self.boq_name = "Smeta 1"  # Default name
         self.string_count = 0
         self._updating_table = False
+        self._breaker_ratings = [
+            6, 10, 16, 20, 25, 32, 40, 50, 63,
+            80, 100, 125, 160, 200, 250, 320, 400
+        ]
         self.init_ui()
 
     def init_ui(self):
@@ -81,7 +87,26 @@ class SmetaWindow(QMainWindow):
         self.string_input.setStyleSheet("font-size: 14px; padding: 5px;")
         self.string_input.valueChanged.connect(self.update_string_count)
 
+        # AC Breaker Wizard button
+        self.ac_breaker_btn = QPushButton("⚡ AC Breaker Wizard")
+        self.ac_breaker_btn.clicked.connect(self.open_ac_breaker_wizard)
+        self.ac_breaker_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3F51B5;
+                color: white;
+                padding: 6px 12px;
+                border: none;
+                border-radius: 4px;
+                font-size: 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #303F9F;
+            }
+        """)
+
         title_layout.addWidget(title)
+        title_layout.addWidget(self.ac_breaker_btn)
         title_layout.addWidget(self.move_up_btn)
         title_layout.addWidget(self.move_down_btn)
         title_layout.addStretch()
@@ -384,6 +409,125 @@ class SmetaWindow(QMainWindow):
             self.next_id += 1
             self.boq_items.append(data)
             self.refresh_table()
+
+    def open_ac_breaker_wizard(self):
+        """Collect inverter specs, calculate breaker ratings, and add to BoQ."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("AC Breaker Wizard")
+        layout = QVBoxLayout()
+
+        form_layout = QFormLayout()
+        phase_layout = QHBoxLayout()
+
+        single_phase_radio = QRadioButton("Single phase (220V)")
+        three_phase_radio = QRadioButton("3 phase (380V)")
+        single_phase_radio.setChecked(True)
+
+        phase_group = QButtonGroup(dialog)
+        phase_group.addButton(single_phase_radio, 1)
+        phase_group.addButton(three_phase_radio, 3)
+
+        phase_layout.addWidget(single_phase_radio)
+        phase_layout.addWidget(three_phase_radio)
+        phase_layout.addStretch()
+
+        inverter_spin = QSpinBox()
+        inverter_spin.setRange(1, 9999)
+        inverter_spin.setValue(1)
+        inverter_spin.setMaximumWidth(120)
+
+        form_layout.addRow("Phase:", phase_layout)
+        form_layout.addRow("Inverter count:", inverter_spin)
+        layout.addLayout(form_layout)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        dialog.setLayout(layout)
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        phase_count = phase_group.checkedId()
+        voltage = 220 if phase_count == 1 else 380
+        inverter_count = inverter_spin.value()
+
+        needed_counts = {}
+        overflow_used = False
+        for idx in range(inverter_count):
+            kw_value, ok = QInputDialog.getDouble(
+                self,
+                f"Inverter {idx + 1} kW",
+                "Enter kW:",
+                decimals=2,
+                min=0.0,
+                max=1e9
+            )
+            if not ok:
+                return
+            watts = kw_value * 1000.0
+            breaker_rating, overflow = self._calculate_breaker_rating(watts, voltage)
+            overflow_used = overflow_used or overflow
+            needed_counts[breaker_rating] = needed_counts.get(breaker_rating, 0) + 1
+
+        if overflow_used:
+            QMessageBox.information(
+                self,
+                "Məlumat",
+                "Bəzi invertrlər üçün hesablanan cərəyan maksimum breaker dəyərini keçdi. "
+                f"{self._breaker_ratings[-1]}A istifadə edildi."
+            )
+
+        for rating, count in sorted(needed_counts.items()):
+            name = f"AC Breaker C{phase_count}x{rating} A"
+            existing_item = self._find_boq_item_by_name(name)
+            if existing_item:
+                existing_item['quantity'] = existing_item.get('quantity', 0) + count
+                existing_item['total'] = existing_item.get('quantity', 0) * existing_item.get('unit_price_azn', 0)
+            else:
+                data = {
+                    'product_id': None,
+                    'name': name,
+                    'quantity': float(count),
+                    'unit': "Ədəd",
+                    'unit_price': 0.0,
+                    'unit_price_azn': 0.0,
+                    'total': 0.0,
+                    'currency': "AZN",
+                    'margin_percent': 0.0,
+                    'quantity_round': True,
+                    'price_round': False,
+                    'is_custom': True,
+                    'category': "AC Breaker",
+                    'source': "",
+                    'note': ""
+                }
+                data['id'] = self.next_id
+                self.next_id += 1
+                self.boq_items.append(data)
+
+        self.refresh_table()
+
+    def _calculate_breaker_rating(self, watts, voltage):
+        """Return the next standard breaker rating with 15% upsize."""
+        if voltage == 0:
+            current = 0.0
+        elif voltage == 380:
+            current = watts / (voltage * math.sqrt(3))
+        else:
+            current = watts / voltage
+        needed = current * 1.15
+        for rating in self._breaker_ratings:
+            if needed <= rating:
+                return rating, False
+        return self._breaker_ratings[-1], True
+
+    def _find_boq_item_by_name(self, name):
+        for item in self.boq_items:
+            if item.get('name') == name:
+                return item
+        return None
 
     def edit_item(self):
         """Edit selected item"""
