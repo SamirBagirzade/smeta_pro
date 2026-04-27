@@ -639,9 +639,9 @@ class SmetaWindow(QMainWindow):
         effective_current = current / n_parallel
 
         # Calculate cable size
-        cable_size = self._calculate_cable_size(effective_current, voltage, distance, max_drop_percent, material, insulation, installation)
+        phase_size, neutral_size = self._calculate_cable_size(effective_current, voltage, distance, max_drop_percent, material, insulation, installation)
 
-        if cable_size:
+        if phase_size is not None:
             # Determine cable type
             if material == "Copper":
                 cable_type = "NYY" if insulation == "PVC" else "N2XY"
@@ -650,9 +650,9 @@ class SmetaWindow(QMainWindow):
 
             # Name
             if phase_count == 3:
-                name = f"{material} kabel {cable_type} 3x{cable_size}+{cable_size}"
+                name = f"{material} kabel {cable_type} 3x{phase_size}+{neutral_size}"
             else:
-                name = f"{material} kabel {cable_type} 1x{cable_size}+{cable_size}"
+                name = f"{material} kabel {cable_type} 1x{phase_size}+{neutral_size}"
 
             existing_item = self._find_boq_item_by_name(name)
             if existing_item:
@@ -681,7 +681,7 @@ class SmetaWindow(QMainWindow):
                 self.boq_items.append(data)
 
             self.refresh_table()
-            QMessageBox.information(self, "Uğur", f"Kabel ölçüsü hesablandı: {cable_size} mm²\n{name}")
+            QMessageBox.information(self, "Uğur", f"Kabel ölçüsü hesablandı: {phase_size} mm² (faza) + {neutral_size} mm² (neytral)\n{name}")
         else:
             QMessageBox.warning(self, "Xəta", "Uyğun kabel ölçüsü tapılmadı.")
 
@@ -722,9 +722,13 @@ class SmetaWindow(QMainWindow):
             v_drop = current * r_per_m * distance * 2  # Volts
             drop_percent = (v_drop / voltage) * 100
             if drop_percent <= max_drop_percent:
-                return size
+                phase_size = size
+                # Neutral size is half the phase size, find closest standard size
+                neutral_target = phase_size / 2
+                neutral_size = min(sizes, key=lambda x: abs(x - neutral_target))
+                return phase_size, neutral_size
 
-        return None
+        return None, None
 
     def _calculate_breaker_rating(self, watts, voltage):
         """Return the next standard breaker rating with 15% upsize."""
