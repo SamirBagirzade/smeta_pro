@@ -130,7 +130,7 @@ class CurrencySettingsManager:
             }
             joiner = "&" if "?" in api_url else "?"
             url = f"{api_url}{joiner}{urlencode(params)}"
-            req = Request(url, headers={"X-API-Key": api_key})
+            req = Request(url, headers={"Authorization": f"Bearer {api_key}"})
             with urlopen(req, timeout=10) as response:
                 payload = json.loads(response.read().decode("utf-8"))
 
