@@ -4,7 +4,7 @@ import json
 import os
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
-from urllib.request import urlopen
+from urllib.request import urlopen, Request
 
 
 DEFAULT_API_URL = "https://api.unirateapi.com/api/convert"
@@ -124,14 +124,14 @@ class CurrencySettingsManager:
         new_rates = DEFAULT_RATES.copy()
         for code in ("USD", "EUR", "TRY"):
             params = {
-                "api_key": api_key,
                 "from": code,
                 "to": "AZN",
                 "amount": 1,
             }
             joiner = "&" if "?" in api_url else "?"
             url = f"{api_url}{joiner}{urlencode(params)}"
-            with urlopen(url, timeout=10) as response:
+            req = Request(url, headers={"X-API-Key": api_key})
+            with urlopen(req, timeout=10) as response:
                 payload = json.loads(response.read().decode("utf-8"))
 
             if "result" not in payload:

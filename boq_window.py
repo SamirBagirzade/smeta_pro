@@ -3,6 +3,7 @@
 import os
 from datetime import timezone
 import math
+import re
 
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
@@ -692,7 +693,7 @@ class SmetaWindow(QMainWindow):
             else:
                 price_text = f"AZN {unit_price_azn:.2f} ({unit_price:.2f} {currency})"
             price_item = QTableWidgetItem(price_text)
-            price_item.setFlags(price_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            price_item.setFlags(price_item.flags() | Qt.ItemFlag.ItemIsEditable)
             self.table.setItem(row_position, 5, price_item)
             # Column 6: Cəmi (cost)
             cost_item = QTableWidgetItem(f"{cost_total:.2f}")
@@ -761,6 +762,41 @@ class SmetaWindow(QMainWindow):
 
             self._updating_table = True
             item.setText(f"{quantity:.2f}")
+            cost_item = self.table.item(row, 6)
+            if cost_item:
+                cost_item.setText(f"{total:.2f}")
+            final_item = self.table.item(row, 8)
+            if final_item:
+                final_item.setText(f"{final_total:.2f}")
+            self._updating_table = False
+
+            self.update_summary()
+            return
+        if item.column() == 5:
+            text = item.text().strip().replace(',', '.')
+            numbers = re.findall(r"[-+]?\d*\.?\d+", text)
+            if not numbers:
+                unit_price_azn = self.boq_items[row].get('unit_price_azn', 0)
+            else:
+                try:
+                    unit_price_azn = float(numbers[0])
+                except ValueError:
+                    unit_price_azn = self.boq_items[row].get('unit_price_azn', 0)
+
+            unit_price_azn = max(0.0, unit_price_azn)
+            self.boq_items[row]['unit_price_azn'] = unit_price_azn
+            self.boq_items[row]['unit_price'] = unit_price_azn
+            self.boq_items[row]['currency'] = 'AZN'
+
+            quantity = self.boq_items[row].get('quantity', 1)
+            total = quantity * unit_price_azn
+            self.boq_items[row]['total'] = total
+
+            margin_pct = self.boq_items[row].get('margin_percent', 0)
+            final_total = total * (1 + margin_pct / 100)
+
+            self._updating_table = True
+            item.setText(f"{unit_price_azn:.2f} AZN")
             cost_item = self.table.item(row, 6)
             if cost_item:
                 cost_item.setText(f"{total:.2f}")
