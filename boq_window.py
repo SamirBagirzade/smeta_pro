@@ -163,7 +163,7 @@ class SmetaWindow(QMainWindow):
         self.table.setHorizontalHeaderLabels([
             "№", "Adı", "Kateqoriya", "Miqdar", "Ölçü Vahidi", "Vahid Qiymət", "Cəmi", "Marja %", "Yekun", "Mənbə", "Qeyd", "Növ"
         ])
-        self.table.verticalHeader().setVisible(False)
+        self._hide_table_row_header()
 
         # Table styling
         self.table.setAlternatingRowColors(True)
@@ -431,6 +431,14 @@ class SmetaWindow(QMainWindow):
 
         # Ctrl+Down: Move item down
         QShortcut(QKeySequence("Ctrl+Down"), self).activated.connect(self.move_item_down)
+
+    def _hide_table_row_header(self):
+        """Hide Qt's separate row-number gutter from the BOQ table."""
+        row_header = self.table.verticalHeader()
+        row_header.setVisible(False)
+        row_header.hide()
+        row_header.setMinimumWidth(0)
+        row_header.setMaximumWidth(0)
 
     def add_from_database(self):
         """Add item from database"""
@@ -982,6 +990,7 @@ class SmetaWindow(QMainWindow):
     def refresh_table(self):
         """Refresh the Smeta table"""
         self._updating_table = True
+        self._hide_table_row_header()
         self.table.setRowCount(0)
 
         for item in self.boq_items:
