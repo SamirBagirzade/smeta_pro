@@ -36,6 +36,17 @@ class SmetaWindow(QMainWindow):
             6, 10, 16, 20, 25, 32, 40, 50, 63,
             80, 100, 125, 160, 200, 250, 320, 400
         ]
+        # AC Cable Wizard state
+        self.cable_phase = 3  # 1 or 3
+        self.cable_kva = 10.0
+        self.cable_pf = 0.95
+        self.cable_voltage = 380
+        self.cable_distance = 100.0
+        self.cable_drop = 3.0
+        self.cable_parallel = 1
+        self.cable_material = "Mis"
+        self.cable_insulation = "PVC"
+        self.cable_installation = "açıq hava / şaxtada"
         self.init_ui()
 
     def init_ui(self):
@@ -541,7 +552,10 @@ class SmetaWindow(QMainWindow):
         phase_layout = QHBoxLayout()
         single_phase_radio = QRadioButton("Tək faza")
         three_phase_radio = QRadioButton("3 faza")
-        three_phase_radio.setChecked(True)
+        if self.cable_phase == 1:
+            single_phase_radio.setChecked(True)
+        else:
+            three_phase_radio.setChecked(True)
         phase_group = QButtonGroup(dialog)
         phase_group.addButton(single_phase_radio, 1)
         phase_group.addButton(three_phase_radio, 3)
@@ -553,21 +567,21 @@ class SmetaWindow(QMainWindow):
         # kVA input
         kva_spin = QDoubleSpinBox()
         kva_spin.setRange(0.1, 10000.0)
-        kva_spin.setValue(10.0)
+        kva_spin.setValue(self.cable_kva)
         kva_spin.setSuffix(" kVA")
         form_layout.addRow("Güc (kVA):", kva_spin)
 
         # Power factor
         pf_spin = QDoubleSpinBox()
         pf_spin.setRange(0.1, 1.0)
-        pf_spin.setValue(0.95)
+        pf_spin.setValue(self.cable_pf)
         pf_spin.setSingleStep(0.01)
         form_layout.addRow("Güc faktoru:", pf_spin)
 
         # Voltage input
         voltage_spin = QSpinBox()
         voltage_spin.setRange(100, 1000)
-        voltage_spin.setValue(380)  # Default for 3 phase
+        voltage_spin.setValue(self.cable_voltage)
         voltage_spin.setSuffix(" V")
         form_layout.addRow("Gərginlik (V):", voltage_spin)
 
@@ -583,36 +597,39 @@ class SmetaWindow(QMainWindow):
         # Distance input
         distance_spin = QDoubleSpinBox()
         distance_spin.setRange(0.1, 10000.0)
-        distance_spin.setValue(100.0)
+        distance_spin.setValue(self.cable_distance)
         distance_spin.setSuffix(" m")
         form_layout.addRow("Məsafə (m):", distance_spin)
 
         # Voltage drop %
         drop_spin = QDoubleSpinBox()
         drop_spin.setRange(0.1, 10.0)
-        drop_spin.setValue(3.0)
+        drop_spin.setValue(self.cable_drop)
         drop_spin.setSuffix(" %")
         form_layout.addRow("İcazə verilən gərginlik düşümü (%):", drop_spin)
 
         # Parallel cables
         parallel_spin = QSpinBox()
         parallel_spin.setRange(1, 10)
-        parallel_spin.setValue(1)
+        parallel_spin.setValue(self.cable_parallel)
         form_layout.addRow("Paralel kabel sayı:", parallel_spin)
 
         # Material
         material_combo = QComboBox()
         material_combo.addItems(["Mis", "Aluminum"])
+        material_combo.setCurrentText(self.cable_material)
         form_layout.addRow("Material:", material_combo)
 
         # Insulation
         insulation_combo = QComboBox()
         insulation_combo.addItems(["PVC", "XLPE"])
+        insulation_combo.setCurrentText(self.cable_insulation)
         form_layout.addRow("İzoliyasiya:", insulation_combo)
 
         # Installation
         install_combo = QComboBox()
         install_combo.addItems(["açıq hava / şaxtada", "tavada", "yeraltı turbada"])
+        install_combo.setCurrentText(self.cable_installation)
         form_layout.addRow("Quraşdırma növü:", install_combo)
 
         layout.addLayout(form_layout)
@@ -637,6 +654,18 @@ class SmetaWindow(QMainWindow):
         material = material_combo.currentText()
         insulation = insulation_combo.currentText()
         installation = install_combo.currentText()
+
+        # Save state
+        self.cable_phase = phase_count
+        self.cable_kva = kva
+        self.cable_pf = pf
+        self.cable_voltage = voltage
+        self.cable_distance = distance
+        self.cable_drop = max_drop_percent
+        self.cable_parallel = n_parallel
+        self.cable_material = material
+        self.cable_insulation = insulation
+        self.cable_installation = installation
 
         # Calculate current
         if phase_count == 1:
