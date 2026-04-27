@@ -537,12 +537,32 @@ class SmetaWindow(QMainWindow):
 
         form_layout = QFormLayout()
 
-        # Current input
-        current_spin = QDoubleSpinBox()
-        current_spin.setRange(0.1, 10000.0)
-        current_spin.setValue(10.0)
-        current_spin.setSuffix(" A")
-        form_layout.addRow("Cərəyan (A):", current_spin)
+        # Phase selection
+        phase_layout = QHBoxLayout()
+        single_phase_radio = QRadioButton("Tək faza")
+        three_phase_radio = QRadioButton("3 faza")
+        three_phase_radio.setChecked(True)
+        phase_group = QButtonGroup(dialog)
+        phase_group.addButton(single_phase_radio, 1)
+        phase_group.addButton(three_phase_radio, 3)
+        phase_layout.addWidget(single_phase_radio)
+        phase_layout.addWidget(three_phase_radio)
+        phase_layout.addStretch()
+        form_layout.addRow("Faza:", phase_layout)
+
+        # kVA input
+        kva_spin = QDoubleSpinBox()
+        kva_spin.setRange(0.1, 10000.0)
+        kva_spin.setValue(10.0)
+        kva_spin.setSuffix(" kVA")
+        form_layout.addRow("Güc (kVA):", kva_spin)
+
+        # Power factor
+        pf_spin = QDoubleSpinBox()
+        pf_spin.setRange(0.1, 1.0)
+        pf_spin.setValue(0.95)
+        pf_spin.setSingleStep(0.01)
+        form_layout.addRow("Güc faktoru:", pf_spin)
 
         # Voltage input
         voltage_spin = QSpinBox()
@@ -564,6 +584,12 @@ class SmetaWindow(QMainWindow):
         drop_spin.setValue(3.0)
         drop_spin.setSuffix(" %")
         form_layout.addRow("İcazə verilən gərginlik düşümü (%):", drop_spin)
+
+        # Parallel cables
+        parallel_spin = QSpinBox()
+        parallel_spin.setRange(1, 10)
+        parallel_spin.setValue(1)
+        form_layout.addRow("Paralel kabel sayı:", parallel_spin)
 
         # Material
         material_combo = QComboBox()
@@ -592,30 +618,52 @@ class SmetaWindow(QMainWindow):
             return
 
         # Get values
-        current = current_spin.value()
+        phase_count = phase_group.checkedId()
+        kva = kva_spin.value()
+        pf = pf_spin.value()
         voltage = voltage_spin.value()
         distance = distance_spin.value()
         max_drop_percent = drop_spin.value()
+        n_parallel = parallel_spin.value()
         material = material_combo.currentText()
         insulation = insulation_combo.currentText()
         installation = install_combo.currentText()
 
+        # Calculate current
+        if phase_count == 1:
+            current = kva * 1000 / (voltage * pf)
+        else:
+            current = kva * 1000 / (voltage * math.sqrt(3) * pf)
+
+        # Effective current per cable
+        effective_current = current / n_parallel
+
         # Calculate cable size
-        cable_size = self._calculate_cable_size(current, voltage, distance, max_drop_percent, material, insulation, installation)
+        cable_size = self._calculate_cable_size(effective_current, voltage, distance, max_drop_percent, material, insulation, installation)
 
         if cable_size:
-            # Add to BOQ
-            name = f"AC Cable {cable_size} mm² {material} {insulation} ({installation})"
+            # Determine cable type
+            if material == "Copper":
+                cable_type = "NYY" if insulation == "PVC" else "N2XY"
+            else:
+                cable_type = "NAYY" if insulation == "PVC" else "NA2XY"
+
+            # Name
+            if phase_count == 3:
+                name = f"{material} kabel {cable_type} 3x{cable_size}+{cable_size}"
+            else:
+                name = f"{material} kabel {cable_type} 1x{cable_size}+{cable_size}"
+
             existing_item = self._find_boq_item_by_name(name)
             if existing_item:
-                existing_item['quantity'] = existing_item.get('quantity', 0) + distance / 1000.0  # km
+                existing_item['quantity'] = existing_item.get('quantity', 0) + distance
                 existing_item['total'] = existing_item.get('quantity', 0) * existing_item.get('unit_price_azn', 0)
             else:
                 data = {
                     'product_id': None,
                     'name': name,
-                    'quantity': distance / 1000.0,  # km
-                    'unit': "km",
+                    'quantity': distance,
+                    'unit': "m",
                     'unit_price': 0.0,
                     'unit_price_azn': 0.0,
                     'total': 0.0,
@@ -626,14 +674,14 @@ class SmetaWindow(QMainWindow):
                     'is_custom': True,
                     'category': "Elektrik;Kabel",
                     'source': "",
-                    'note': f"Calculated for {current}A, {voltage}V, {distance}m, {max_drop_percent}% drop"
+                    'note': f"Calculated for {kva}kVA, {pf}pf, {voltage}V, {distance}m, {max_drop_percent}% drop, {n_parallel} parallel"
                 }
                 data['id'] = self.next_id
                 self.next_id += 1
                 self.boq_items.append(data)
 
             self.refresh_table()
-            QMessageBox.information(self, "Uğur", f"Kabel ölçüsü hesablandı: {cable_size} mm²")
+            QMessageBox.information(self, "Uğur", f"Kabel ölçüsü hesablandı: {cable_size} mm²\n{name}")
         else:
             QMessageBox.warning(self, "Xəta", "Uyğun kabel ölçüsü tapılmadı.")
 
