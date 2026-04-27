@@ -4,10 +4,10 @@ import json
 import os
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
-from urllib.request import urlopen, Request
+from urllib.request import urlopen
 
 
-DEFAULT_API_URL = "https://api.unirateapi.com/api/rates"
+DEFAULT_API_URL = "https://api.unirateapi.com/api/convert"
 DEFAULT_RATES = {
     "AZN": 1.0,
     "USD": 0.0,
@@ -124,20 +124,20 @@ class CurrencySettingsManager:
         new_rates = DEFAULT_RATES.copy()
         for code in ("USD", "EUR", "TRY"):
             params = {
+                "api_key": api_key,
                 "from": code,
                 "to": "AZN",
                 "amount": 1,
             }
             joiner = "&" if "?" in api_url else "?"
             url = f"{api_url}{joiner}{urlencode(params)}"
-            req = Request(url, headers={"Authorization": f"Bearer {api_key}"})
-            with urlopen(req, timeout=10) as response:
+            with urlopen(url, timeout=10) as response:
                 payload = json.loads(response.read().decode("utf-8"))
 
-            if "results" not in payload or "AZN" not in payload["results"]:
+            if "result" not in payload:
                 raise Exception(f"Unexpected API response: {payload}")
 
-            new_rates[code] = float(payload["results"]["AZN"])
+            new_rates[code] = float(payload["result"])
 
         new_rates["AZN"] = 1.0
 
