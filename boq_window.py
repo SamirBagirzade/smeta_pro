@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QTableWidget, QTableWidgetItem, QPushButton, QHeaderView, QMessageBox,
     QDialog, QSpinBox, QDialogButtonBox, QRadioButton, QButtonGroup,
-    QFormLayout, QInputDialog
+    QFormLayout, QInputDialog, QComboBox, QDoubleSpinBox
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QShortcut, QKeySequence
@@ -106,8 +106,27 @@ class SmetaWindow(QMainWindow):
             }
         """)
 
+        # AC Cable Wizard button
+        self.ac_cable_btn = QPushButton("🔌 AC Kabel Sehirbazı")
+        self.ac_cable_btn.clicked.connect(self.open_ac_cable_wizard)
+        self.ac_cable_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                padding: 6px 12px;
+                border: none;
+                border-radius: 4px;
+                font-size: 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #388E3C;
+            }
+        """)
+
         title_layout.addWidget(title)
         title_layout.addWidget(self.ac_breaker_btn)
+        title_layout.addWidget(self.ac_cable_btn)
         title_layout.addWidget(self.move_up_btn)
         title_layout.addWidget(self.move_down_btn)
         title_layout.addStretch()
@@ -509,6 +528,155 @@ class SmetaWindow(QMainWindow):
                 self.boq_items.append(data)
 
         self.refresh_table()
+
+    def open_ac_cable_wizard(self):
+        """AC Cable sizing wizard based on IEC standards."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("AC Kabel Sehirbazı")
+        layout = QVBoxLayout()
+
+        form_layout = QFormLayout()
+
+        # Current input
+        current_spin = QDoubleSpinBox()
+        current_spin.setRange(0.1, 10000.0)
+        current_spin.setValue(10.0)
+        current_spin.setSuffix(" A")
+        form_layout.addRow("Cərəyan (A):", current_spin)
+
+        # Voltage input
+        voltage_spin = QSpinBox()
+        voltage_spin.setRange(100, 1000)
+        voltage_spin.setValue(400)
+        voltage_spin.setSuffix(" V")
+        form_layout.addRow("Gərginlik (V):", voltage_spin)
+
+        # Distance input
+        distance_spin = QDoubleSpinBox()
+        distance_spin.setRange(0.1, 10000.0)
+        distance_spin.setValue(100.0)
+        distance_spin.setSuffix(" m")
+        form_layout.addRow("Məsafə (m):", distance_spin)
+
+        # Voltage drop %
+        drop_spin = QDoubleSpinBox()
+        drop_spin.setRange(0.1, 10.0)
+        drop_spin.setValue(3.0)
+        drop_spin.setSuffix(" %")
+        form_layout.addRow("İcazə verilən gərginlik düşümü (%):", drop_spin)
+
+        # Material
+        material_combo = QComboBox()
+        material_combo.addItems(["Copper", "Aluminum"])
+        form_layout.addRow("Material:", material_combo)
+
+        # Insulation
+        insulation_combo = QComboBox()
+        insulation_combo.addItems(["PVC", "XLPE"])
+        form_layout.addRow("İzoliyasiya:", insulation_combo)
+
+        # Installation
+        install_combo = QComboBox()
+        install_combo.addItems(["Open air", "In Unperforated tray", "In duct underground"])
+        form_layout.addRow("Quraşdırma növü:", install_combo)
+
+        layout.addLayout(form_layout)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        dialog.setLayout(layout)
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        # Get values
+        current = current_spin.value()
+        voltage = voltage_spin.value()
+        distance = distance_spin.value()
+        max_drop_percent = drop_spin.value()
+        material = material_combo.currentText()
+        insulation = insulation_combo.currentText()
+        installation = install_combo.currentText()
+
+        # Calculate cable size
+        cable_size = self._calculate_cable_size(current, voltage, distance, max_drop_percent, material, insulation, installation)
+
+        if cable_size:
+            # Add to BOQ
+            name = f"AC Cable {cable_size} mm² {material} {insulation} ({installation})"
+            existing_item = self._find_boq_item_by_name(name)
+            if existing_item:
+                existing_item['quantity'] = existing_item.get('quantity', 0) + distance / 1000.0  # km
+                existing_item['total'] = existing_item.get('quantity', 0) * existing_item.get('unit_price_azn', 0)
+            else:
+                data = {
+                    'product_id': None,
+                    'name': name,
+                    'quantity': distance / 1000.0,  # km
+                    'unit': "km",
+                    'unit_price': 0.0,
+                    'unit_price_azn': 0.0,
+                    'total': 0.0,
+                    'currency': "AZN",
+                    'margin_percent': 0.0,
+                    'quantity_round': False,
+                    'price_round': False,
+                    'is_custom': True,
+                    'category': "Elektrik;Kabel",
+                    'source': "",
+                    'note': f"Calculated for {current}A, {voltage}V, {distance}m, {max_drop_percent}% drop"
+                }
+                data['id'] = self.next_id
+                self.next_id += 1
+                self.boq_items.append(data)
+
+            self.refresh_table()
+            QMessageBox.information(self, "Uğur", f"Kabel ölçüsü hesablandı: {cable_size} mm²")
+        else:
+            QMessageBox.warning(self, "Xəta", "Uyğun kabel ölçüsü tapılmadı.")
+
+    def _calculate_cable_size(self, current, voltage, distance, max_drop_percent, material, insulation, installation):
+        """Calculate minimum cable size based on IEC standards."""
+        # Resistivity (ohm.mm²/m)
+        rho = 0.0175 if material == "Copper" else 0.028  # Copper: 0.0175, Aluminum: 0.028
+
+        # Derating factors for installation
+        derating = {
+            "Open air": 1.0,
+            "In Unperforated tray": 0.9,
+            "In duct underground": 0.8
+        }.get(installation, 1.0)
+
+        # Ampacity table (simplified, based on IEC for PVC/XLPE)
+        ampacity_pvc = {
+            1.5: 17, 2.5: 24, 4: 32, 6: 41, 10: 57, 16: 76, 25: 101, 35: 125, 50: 151, 70: 192, 95: 232, 120: 269, 150: 302, 185: 341, 240: 400, 300: 464
+        }
+        ampacity_xlpe = {
+            1.5: 20, 2.5: 27, 4: 36, 6: 46, 10: 64, 16: 85, 25: 114, 35: 141, 50: 170, 70: 216, 95: 261, 120: 293, 150: 339, 185: 382, 240: 445, 300: 517
+        }
+        ampacity = ampacity_xlpe if insulation == "XLPE" else ampacity_pvc
+
+        # Standard sizes
+        sizes = sorted(ampacity.keys())
+
+        for size in sizes:
+            # Check ampacity
+            max_current = ampacity[size] * derating
+            if current > max_current:
+                continue
+
+            # Check voltage drop
+            # R = rho / size (ohm/m)
+            r_per_m = rho / size
+            # For AC, voltage drop approx V_drop = I * R * L * 2 (round trip)
+            v_drop = current * r_per_m * distance * 2  # Volts
+            drop_percent = (v_drop / voltage) * 100
+            if drop_percent <= max_drop_percent:
+                return size
+
+        return None
 
     def _calculate_breaker_rating(self, watts, voltage):
         """Return the next standard breaker rating with 15% upsize."""
