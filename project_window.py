@@ -50,6 +50,7 @@ class ProjectWindow(QMainWindow):
         self.table = QTableWidget()
         self.table.setColumnCount(5)
         self.table.setHorizontalHeaderLabels(["Layihə Adı", "Təsvir", "Status", "Smeta Sayı", "Yenilənmə"])
+        self.table.verticalHeader().hide()
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
@@ -398,6 +399,7 @@ class ProjectWindow(QMainWindow):
         boq_table = QTableWidget()
         boq_table.setColumnCount(3)
         boq_table.setHorizontalHeaderLabels(["Smeta Adı", "Qeyd Sayı", "Ümumi Məbləğ"])
+        boq_table.verticalHeader().hide()
         boq_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         boq_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
 
@@ -504,6 +506,7 @@ class ProjectWindow(QMainWindow):
             boq_table = QTableWidget()
             boq_table.setColumnCount(3)
             boq_table.setHorizontalHeaderLabels(["Smeta Adı", "Qeyd Sayı", "Yenilənmə"])
+            boq_table.verticalHeader().hide()
             boq_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
             boq_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
             boq_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)

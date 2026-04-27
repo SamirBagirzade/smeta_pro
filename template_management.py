@@ -70,6 +70,7 @@ class TemplateManagementWindow(QDialog):
         self.template_list = QTableWidget()
         self.template_list.setColumnCount(2)
         self.template_list.setHorizontalHeaderLabels(["Şablon Adı", "Qeyd Sayı"])
+        self.template_list.verticalHeader().hide()
         self.template_list.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.template_list.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.template_list.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -147,6 +148,7 @@ class TemplateManagementWindow(QDialog):
         self.items_table.setHorizontalHeaderLabels(
             ["Generik Ad", "Dəyişən", "Miqdar", "Ölçü Vahidi", "Defolt Qiymət", "Tip"]
         )
+        self.items_table.verticalHeader().hide()
         self.items_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.items_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
 

@@ -179,6 +179,7 @@ class MainWindow(QMainWindow):
         self.table = QTableView()
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.table.setModel(self.proxy_model)
+        self.table.verticalHeader().hide()
 
         # Table styling
         self.table.setAlternatingRowColors(True)
@@ -1399,7 +1400,7 @@ class ProductTableModel(QAbstractTableModel):
             return None
         if orientation == Qt.Orientation.Horizontal:
             return self.headers[section]
-        return section + 1
+        return None
 
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
         if not index.isValid():
