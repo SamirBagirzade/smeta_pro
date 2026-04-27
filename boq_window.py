@@ -567,9 +567,18 @@ class SmetaWindow(QMainWindow):
         # Voltage input
         voltage_spin = QSpinBox()
         voltage_spin.setRange(100, 1000)
-        voltage_spin.setValue(400)
+        voltage_spin.setValue(380)  # Default for 3 phase
         voltage_spin.setSuffix(" V")
         form_layout.addRow("Gərginlik (V):", voltage_spin)
+
+        # Connect phase change to update voltage
+        def update_voltage():
+            if single_phase_radio.isChecked():
+                voltage_spin.setValue(220)
+            else:
+                voltage_spin.setValue(380)
+        
+        phase_group.buttonClicked.connect(update_voltage)
 
         # Distance input
         distance_spin = QDoubleSpinBox()
