@@ -654,34 +654,40 @@ class SmetaWindow(QMainWindow):
             else:
                 name = f"{material} kabel {cable_type} 1x{phase_size}+{neutral_size}"
 
-            existing_item = self._find_boq_item_by_name(name)
-            if existing_item:
-                existing_item['quantity'] = existing_item.get('quantity', 0) + distance
-                existing_item['total'] = existing_item.get('quantity', 0) * existing_item.get('unit_price_azn', 0)
-            else:
-                data = {
-                    'product_id': None,
-                    'name': name,
-                    'quantity': distance,
-                    'unit': "m",
-                    'unit_price': 0.0,
-                    'unit_price_azn': 0.0,
-                    'total': 0.0,
-                    'currency': "AZN",
-                    'margin_percent': 0.0,
-                    'quantity_round': False,
-                    'price_round': False,
-                    'is_custom': True,
-                    'category': "Elektrik;Kabel",
-                    'source': "",
-                    'note': f"Calculated for {kva}kVA, {pf}pf, {voltage}V, {distance}m, {max_drop_percent}% drop, {n_parallel} parallel"
-                }
-                data['id'] = self.next_id
-                self.next_id += 1
-                self.boq_items.append(data)
+            # Show preview and confirm
+            details = f"Kabel ölçüsü: {phase_size} mm² (faza) + {neutral_size} mm² (neytral)\nAdı: {name}\nMiqdar: {distance} m\nHesab üçün: {kva}kVA, {pf}pf, {voltage}V, {max_drop_percent}% düşmə, {n_parallel} paralel"
+            reply = QMessageBox.question(self, "Kabel Hesablandı", details + "\n\nBOQ-ya əlavə etmək istəyirsiniz?", 
+                                       QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
 
-            self.refresh_table()
-            QMessageBox.information(self, "Uğur", f"Kabel ölçüsü hesablandı: {phase_size} mm² (faza) + {neutral_size} mm² (neytral)\n{name}")
+            if reply == QMessageBox.StandardButton.Yes:
+                existing_item = self._find_boq_item_by_name(name)
+                if existing_item:
+                    existing_item['quantity'] = existing_item.get('quantity', 0) + distance
+                    existing_item['total'] = existing_item.get('quantity', 0) * existing_item.get('unit_price_azn', 0)
+                else:
+                    data = {
+                        'product_id': None,
+                        'name': name,
+                        'quantity': distance,
+                        'unit': "m",
+                        'unit_price': 0.0,
+                        'unit_price_azn': 0.0,
+                        'total': 0.0,
+                        'currency': "AZN",
+                        'margin_percent': 0.0,
+                        'quantity_round': False,
+                        'price_round': False,
+                        'is_custom': True,
+                        'category': "Elektrik;Kabel",
+                        'source': "",
+                        'note': f"Calculated for {kva}kVA, {pf}pf, {voltage}V, {distance}m, {max_drop_percent}% drop, {n_parallel} parallel"
+                    }
+                    data['id'] = self.next_id
+                    self.next_id += 1
+                    self.boq_items.append(data)
+
+                self.refresh_table()
+                QMessageBox.information(self, "Uğur", "Kabel BOQ-ya əlavə edildi.")
         else:
             QMessageBox.warning(self, "Xəta", "Uyğun kabel ölçüsü tapılmadı.")
 
