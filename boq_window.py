@@ -163,6 +163,7 @@ class SmetaWindow(QMainWindow):
         self.table.setHorizontalHeaderLabels([
             "№", "Adı", "Kateqoriya", "Miqdar", "Ölçü Vahidi", "Vahid Qiymət", "Cəmi", "Marja %", "Yekun", "Mənbə", "Qeyd", "Növ"
         ])
+        self.table.verticalHeader().setVisible(False)
 
         # Table styling
         self.table.setAlternatingRowColors(True)
