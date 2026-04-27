@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTableView,
     QPushButton, QLineEdit, QLabel, QMessageBox, QHeaderView,
-    QMenu, QCheckBox, QFileDialog, QDialog
+    QMenu, QFileDialog, QDialog
 )
 from PyQt6.QtCore import Qt, QTimer, QAbstractTableModel, QSortFilterProxyModel, QSettings
 from PyQt6.QtGui import QFont, QColor, QShortcut, QKeySequence
@@ -42,7 +42,7 @@ class MainWindow(QMainWindow):
         self.column_widths = {}
         self.column_min_widths = {}
         # Load saved widths
-        for i in range(8):  # Assuming 8 columns
+        for i in range(7):  # Assuming 7 visible columns
             width = self.settings.value(f"column_width_{i}", type=int)
             if width:
                 self.column_widths[i] = width
@@ -169,12 +169,6 @@ class MainWindow(QMainWindow):
         csv_layout.addWidget(self.export_btn)
         main_layout.addLayout(csv_layout)
 
-        # ID column toggle
-        self.show_id_checkbox = QCheckBox("ID sütununu göstər")
-        self.show_id_checkbox.setChecked(False)
-        self.show_id_checkbox.stateChanged.connect(self.toggle_id_column)
-        main_layout.addWidget(self.show_id_checkbox)
-
         # Table
         self.table = QTableView()
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -190,11 +184,11 @@ class MainWindow(QMainWindow):
         # Resize columns
         header = self.table.horizontalHeader()
         # Set interactive resizing
-        for i in range(8):  # 8 columns
+        for i in range(7):  # 7 visible columns
             header.setSectionResizeMode(i, QHeaderView.ResizeMode.Interactive)
         
         # Set default column widths and minimums
-        default_widths = [50, 200, 100, 80, 120, 150, 80, 200]  # ID, Name, Category, Price, Days, Source, Unit, Note
+        default_widths = [200, 100, 80, 120, 150, 80, 200]  # Name, Category, Price, Days, Source, Unit, Note
         for i, width in enumerate(default_widths):
             self.column_min_widths[i] = width
             header.setMinimumSectionSize(width)
@@ -205,7 +199,6 @@ class MainWindow(QMainWindow):
         
         # Connect resize signal
         header.sectionResized.connect(self.on_column_resized)
-        self._apply_id_column_visibility()
 
         # Connect double-click to quick add to Smeta
         self.table.doubleClicked.connect(self.quick_add_to_boq)
@@ -514,18 +507,6 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Xəta", f"Məhsullar yüklənə bilmədi:\n{str(e)}")
 
-    def toggle_id_column(self):
-        """Show or hide the ID column."""
-        self._apply_id_column_visibility()
-
-    def _apply_id_column_visibility(self):
-        """Apply ID column visibility and force QTableView to recalculate layout."""
-        self.table.setColumnHidden(0, not self.show_id_checkbox.isChecked())
-        self.table.horizontalHeader().updateGeometries()
-        self.table.updateGeometries()
-        self.table.doItemsLayout()
-        self.table.viewport().update()
-
     def on_column_resized(self, logicalIndex, oldSize, newSize):
         """Save column width preferences, ensuring minimum size."""
         if logicalIndex in self.column_min_widths:
@@ -541,8 +522,6 @@ class MainWindow(QMainWindow):
     def populate_table(self, products):
         """Populate table with product data"""
         self.table_model.set_products(products)
-        self._apply_id_column_visibility()
-        QTimer.singleShot(0, self._apply_id_column_visibility)
         self._refresh_filter_state()
 
     def add_product(self):
@@ -1381,7 +1360,7 @@ class MainWindow(QMainWindow):
 
 class ProductTableModel(QAbstractTableModel):
     headers = [
-        "ID", "Məhsulun Adı", "Kateqoriya", "Qiymət",
+        "Məhsulun Adı", "Kateqoriya", "Qiymət",
         "Qiymət Dəyişdi (Gün)", "Məhsul Mənbəyi", "Ölçü Vahidi", "Qeyd"
     ]
 
@@ -1418,7 +1397,7 @@ class ProductTableModel(QAbstractTableModel):
         product = self._products[index.row()]
         column = index.column()
 
-        if role == Qt.ItemDataRole.ForegroundRole and column == 4:
+        if role == Qt.ItemDataRole.ForegroundRole and column == 3:
             days_since = self._days_since_change(product)
             if days_since is None:
                 return None
@@ -1431,9 +1410,9 @@ class ProductTableModel(QAbstractTableModel):
             return QColor(76, 175, 80)
 
         if role == Qt.ItemDataRole.UserRole:
-            if column == 3:
+            if column == 2:
                 return self._price_sort_value(product)
-            if column == 4:
+            if column == 3:
                 days = self._days_since_change(product)
                 return days if days is not None else 10**9
             return self._display_value(product, column)
@@ -1450,21 +1429,19 @@ class ProductTableModel(QAbstractTableModel):
 
     def _display_value(self, product, column):
         if column == 0:
-            return product.get("id", "")
-        if column == 1:
             return product.get("mehsulun_adi", "")
-        if column == 2:
+        if column == 1:
             return product.get("category", "") or "N/A"
-        if column == 3:
+        if column == 2:
             return self._price_display(product)
-        if column == 4:
+        if column == 3:
             days_since = self._days_since_change(product)
             return str(days_since) if days_since is not None else "N/A"
-        if column == 5:
+        if column == 4:
             return product.get("mehsul_menbeyi", "") or "N/A"
-        if column == 6:
+        if column == 5:
             return product.get("olcu_vahidi", "") or "N/A"
-        if column == 7:
+        if column == 6:
             return product.get("qeyd", "") or "N/A"
         return ""
 
