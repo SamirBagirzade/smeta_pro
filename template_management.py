@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget, QTableWidgetItem,
     QHeaderView, QPushButton, QLineEdit, QMessageBox, QInputDialog
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QSettings
 import ast
 import math
 import re
@@ -35,6 +35,23 @@ class TemplateManagementWindow(QDialog):
         self.boq_window = boq_window  # Reference to SmetaWindow for loading items
         self.current_template_id = None
         self.template_items = []
+        
+        # Column width preferences
+        self.settings = QSettings("SmetaPro", "TemplateManagementWindow")
+        self.template_column_widths = {}
+        self.template_column_min_widths = {}
+        self.items_column_widths = {}
+        self.items_column_min_widths = {}
+        # Load saved widths
+        for i in range(2):  # Template list: 2 columns
+            width = self.settings.value(f"template_column_width_{i}", type=int)
+            if width:
+                self.template_column_widths[i] = width
+        for i in range(6):  # Items table: 6 columns
+            width = self.settings.value(f"items_column_width_{i}", type=int)
+            if width:
+                self.items_column_widths[i] = width
+        
         self.init_ui()
 
     def init_ui(self):
@@ -60,8 +77,22 @@ class TemplateManagementWindow(QDialog):
         self.template_list.setMaximumWidth(300)
 
         header = self.template_list.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        # Set interactive resizing
+        for i in range(self.template_list.columnCount()):
+            header.setSectionResizeMode(i, QHeaderView.ResizeMode.Interactive)
+        
+        # Set default column widths and minimums
+        default_widths = [150, 80]  # Name, Count
+        for i, width in enumerate(default_widths):
+            self.template_column_min_widths[i] = width
+            header.setMinimumSectionSize(width)
+            if i in self.template_column_widths:
+                header.resizeSection(i, self.template_column_widths[i])
+            else:
+                header.resizeSection(i, width)
+        
+        # Connect resize signal
+        header.sectionResized.connect(self.on_template_column_resized)
 
         left_panel.addWidget(self.template_list)
 
@@ -120,12 +151,22 @@ class TemplateManagementWindow(QDialog):
         self.items_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
 
         items_header = self.items_table.horizontalHeader()
-        items_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        items_header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        items_header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        items_header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        items_header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        items_header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        # Set interactive resizing
+        for i in range(self.items_table.columnCount()):
+            items_header.setSectionResizeMode(i, QHeaderView.ResizeMode.Interactive)
+        
+        # Set default column widths and minimums
+        default_widths = [150, 100, 80, 80, 100, 80]  # Generic Name, Variable, Amount, Unit, Price, Type
+        for i, width in enumerate(default_widths):
+            self.items_column_min_widths[i] = width
+            items_header.setMinimumSectionSize(width)
+            if i in self.items_column_widths:
+                items_header.resizeSection(i, self.items_column_widths[i])
+            else:
+                items_header.resizeSection(i, width)
+        
+        # Connect resize signal
+        items_header.sectionResized.connect(self.on_items_column_resized)
 
         right_panel.addWidget(self.items_table)
 
@@ -761,3 +802,23 @@ class TemplateManagementWindow(QDialog):
             'quantity_round': bool(template_item.get('amount_round')),
             'price_round': bool(template_item.get('price_round'))
         }
+
+    def on_template_column_resized(self, logicalIndex, oldSize, newSize):
+        """Handle template list column resize"""
+        min_width = self.template_column_min_widths.get(logicalIndex, 50)
+        if newSize < min_width:
+            header = self.template_list.horizontalHeader()
+            header.resizeSection(logicalIndex, min_width)
+            newSize = min_width
+        self.template_column_widths[logicalIndex] = newSize
+        self.settings.setValue(f"template_column_width_{logicalIndex}", newSize)
+
+    def on_items_column_resized(self, logicalIndex, oldSize, newSize):
+        """Handle items table column resize"""
+        min_width = self.items_column_min_widths.get(logicalIndex, 50)
+        if newSize < min_width:
+            header = self.items_table.horizontalHeader()
+            header.resizeSection(logicalIndex, min_width)
+            newSize = min_width
+        self.items_column_widths[logicalIndex] = newSize
+        self.settings.setValue(f"items_column_width_{logicalIndex}", newSize)

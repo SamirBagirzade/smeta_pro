@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem, QHeaderView, QPushButton, QMessageBox, QDialog,
     QFormLayout, QLineEdit, QTextEdit
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QSettings
 from PyQt6.QtGui import QFont
 
 
@@ -16,6 +16,17 @@ class ProjectWindow(QMainWindow):
         super().__init__(parent)
         self.parent_window = parent
         self.db = db
+        
+        # Column width preferences
+        self.settings = QSettings("SmetaPro", "ProjectWindow")
+        self.column_widths = {}
+        self.column_min_widths = {}
+        # Load saved widths
+        for i in range(5):  # 5 columns
+            width = self.settings.value(f"column_width_{i}", type=int)
+            if width:
+                self.column_widths[i] = width
+        
         self.init_ui()
 
     def init_ui(self):
@@ -45,11 +56,22 @@ class ProjectWindow(QMainWindow):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
 
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        # Set interactive resizing
+        for i in range(self.table.columnCount()):
+            header.setSectionResizeMode(i, QHeaderView.ResizeMode.Interactive)
+        
+        # Set default column widths and minimums
+        default_widths = [200, 250, 100, 100, 150]  # Name, Description, Status, Count, Updated
+        for i, width in enumerate(default_widths):
+            self.column_min_widths[i] = width
+            header.setMinimumSectionSize(width)
+            if i in self.column_widths:
+                header.resizeSection(i, self.column_widths[i])
+            else:
+                header.resizeSection(i, width)
+        
+        # Connect resize signal
+        header.sectionResized.connect(self.on_column_resized)
 
         self.table.cellDoubleClicked.connect(self.view_project_details)
         main_layout.addWidget(self.table)
@@ -541,3 +563,13 @@ class ProjectWindow(QMainWindow):
 
         except Exception as e:
             QMessageBox.critical(self, "Xəta", f"Smeta əlavə edilərkən xəta:\n{str(e)}")
+
+    def on_column_resized(self, logicalIndex, oldSize, newSize):
+        """Handle column resize"""
+        min_width = self.column_min_widths.get(logicalIndex, 50)
+        if newSize < min_width:
+            header = self.table.horizontalHeader()
+            header.resizeSection(logicalIndex, min_width)
+            newSize = min_width
+        self.column_widths[logicalIndex] = newSize
+        self.settings.setValue(f"column_width_{logicalIndex}", newSize)

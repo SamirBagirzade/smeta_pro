@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QLineEdit, QLabel, QMessageBox, QHeaderView,
     QMenu, QCheckBox, QFileDialog, QDialog
 )
-from PyQt6.QtCore import Qt, QTimer, QAbstractTableModel, QSortFilterProxyModel
+from PyQt6.QtCore import Qt, QTimer, QAbstractTableModel, QSortFilterProxyModel, QSettings
 from PyQt6.QtGui import QFont, QColor, QShortcut, QKeySequence
 
 from db import DatabaseManager
@@ -36,6 +36,16 @@ class MainWindow(QMainWindow):
         self.proxy_model = ProductFilterProxyModel()
         self.proxy_model.setSourceModel(self.table_model)
         self.proxy_model.setSortRole(Qt.ItemDataRole.UserRole)
+
+        # Column width preferences
+        self.settings = QSettings("SmetaPro", "MainWindow")
+        self.column_widths = {}
+        self.column_min_widths = {}
+        # Load saved widths
+        for i in range(8):  # Assuming 8 columns
+            width = self.settings.value(f"column_width_{i}", type=int)
+            if width:
+                self.column_widths[i] = width
 
         # Create a timer for search debouncing
         self.search_timer = QTimer()
@@ -178,14 +188,22 @@ class MainWindow(QMainWindow):
 
         # Resize columns
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # ID
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)  # Məhsulun Adı
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # Kateqoriya
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)  # Qiymət
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)  # Qiymət Dəyişdi (Gün)
-        header.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)  # Məhsul Mənbəyi
-        header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)  # Ölçü Vahidi
-        header.setSectionResizeMode(7, QHeaderView.ResizeMode.Stretch)  # Qeyd
+        # Set interactive resizing
+        for i in range(8):  # 8 columns
+            header.setSectionResizeMode(i, QHeaderView.ResizeMode.Interactive)
+        
+        # Set default column widths and minimums
+        default_widths = [50, 200, 100, 80, 120, 150, 80, 200]  # ID, Name, Category, Price, Days, Source, Unit, Note
+        for i, width in enumerate(default_widths):
+            self.column_min_widths[i] = width
+            header.setMinimumSectionSize(width)
+            if i in self.column_widths:
+                header.resizeSection(i, self.column_widths[i])
+            else:
+                header.resizeSection(i, width)
+        
+        # Connect resize signal
+        header.sectionResized.connect(self.on_column_resized)
         self.table.setColumnHidden(0, True)
 
         # Connect double-click to quick add to Smeta
@@ -498,6 +516,18 @@ class MainWindow(QMainWindow):
     def toggle_id_column(self):
         """Show or hide the ID column."""
         self.table.setColumnHidden(0, not self.show_id_checkbox.isChecked())
+
+    def on_column_resized(self, logicalIndex, oldSize, newSize):
+        """Save column width preferences, ensuring minimum size."""
+        if logicalIndex in self.column_min_widths:
+            min_width = self.column_min_widths[logicalIndex]
+            if newSize < min_width:
+                # Prevent shrinking below minimum
+                header = self.table.horizontalHeader()
+                header.resizeSection(logicalIndex, min_width)
+                return
+        self.column_widths[logicalIndex] = newSize
+        self.settings.setValue(f"column_width_{logicalIndex}", newSize)
 
     def populate_table(self, products):
         """Populate table with product data"""
