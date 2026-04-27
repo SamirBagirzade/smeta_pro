@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 from urllib.request import urlopen, Request
 
 
-DEFAULT_API_URL = "https://api.unirateapi.com/api/convert"
+DEFAULT_API_URL = "https://api.unirateapi.com/api/rates"
 DEFAULT_RATES = {
     "AZN": 1.0,
     "USD": 0.0,
@@ -134,10 +134,10 @@ class CurrencySettingsManager:
             with urlopen(req, timeout=10) as response:
                 payload = json.loads(response.read().decode("utf-8"))
 
-            if "result" not in payload:
+            if "results" not in payload or "AZN" not in payload["results"]:
                 raise Exception(f"Unexpected API response: {payload}")
 
-            new_rates[code] = float(payload["result"])
+            new_rates[code] = float(payload["results"]["AZN"])
 
         new_rates["AZN"] = 1.0
 
