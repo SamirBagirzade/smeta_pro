@@ -593,7 +593,7 @@ class SmetaWindow(QMainWindow):
 
         # Material
         material_combo = QComboBox()
-        material_combo.addItems(["Copper", "Aluminum"])
+        material_combo.addItems(["Mis", "Aluminum"])
         form_layout.addRow("Material:", material_combo)
 
         # Insulation
@@ -603,7 +603,7 @@ class SmetaWindow(QMainWindow):
 
         # Installation
         install_combo = QComboBox()
-        install_combo.addItems(["Open air", "In Unperforated tray", "In duct underground"])
+        install_combo.addItems(["açıq hava / şaxtada", "tavada", "yeraltı turbada"])
         form_layout.addRow("Quraşdırma növü:", install_combo)
 
         layout.addLayout(form_layout)
@@ -643,7 +643,7 @@ class SmetaWindow(QMainWindow):
 
         if phase_size is not None:
             # Determine cable type
-            if material == "Copper":
+            if material == "Mis":
                 cable_type = "NYY" if insulation == "PVC" else "N2XY"
             else:
                 cable_type = "NAYY" if insulation == "PVC" else "NA2XY"
@@ -694,13 +694,13 @@ class SmetaWindow(QMainWindow):
     def _calculate_cable_size(self, current, voltage, distance, max_drop_percent, material, insulation, installation):
         """Calculate minimum cable size based on IEC standards."""
         # Resistivity (ohm.mm²/m)
-        rho = 0.0175 if material == "Copper" else 0.028  # Copper: 0.0175, Aluminum: 0.028
+        rho = 0.0175 if material == "Mis" else 0.028  # Copper: 0.0175, Aluminum: 0.028
 
         # Derating factors for installation
         derating = {
-            "Open air": 1.0,
-            "In Unperforated tray": 0.9,
-            "In duct underground": 0.8
+            "açıq hava / şaxtada": 1.0,
+            "tavada": 0.9,
+            "yeraltı turbada": 0.8
         }.get(installation, 1.0)
 
         # Ampacity table (simplified, based on IEC for PVC/XLPE)
