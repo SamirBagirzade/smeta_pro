@@ -738,51 +738,50 @@ class SmetaWindow(QMainWindow):
         # Neutral size
         neutral_target = phase_size / 2
         neutral_size = min(sizes, key=lambda x: abs(x - neutral_target))
-            # Determine cable type
-            if material == "Mis":
-                cable_type = "NYY" if insulation == "PVC" else "N2XY"
+
+        # Determine cable type
+        if material == "Mis":
+            cable_type = "NYY" if insulation == "PVC" else "N2XY"
+        else:
+            cable_type = "NAYY" if insulation == "PVC" else "NA2XY"
+
+        # Name
+        if phase_count == 3:
+            name = f"{material} kabel {cable_type} 3x{phase_size}+{neutral_size}"
+        else:
+            name = f"{material} kabel {cable_type} 1x{phase_size}+{neutral_size}"
+
+        # Show preview and confirm
+        details = f"Kabel ölçüsü: {phase_size} mm² (faza) + {neutral_size} mm² (neytral)\nParalel: {n_parallel}\nGərginlik düşümü: {v_drop:.2f} V ({drop_percent:.2f}%)\nAdı: {name}\nMiqdar: {distance} m\nHesab üçün: {kva}kVA, {pf}pf, {voltage}V, {max_drop_percent}% düşmə limiti"
+        reply = QMessageBox.question(self, "Kabel Hesablandı", details + "\n\nBOQ-ya əlavə etmək istəyirsiniz?", 
+                                   QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+
+        if reply == QMessageBox.StandardButton.Yes:
+            existing_item = self._find_boq_item_by_name(name)
+            if existing_item:
+                existing_item['quantity'] = existing_item.get('quantity', 0) + distance
+                existing_item['total'] = existing_item.get('quantity', 0) * existing_item.get('unit_price_azn', 0)
             else:
-                cable_type = "NAYY" if insulation == "PVC" else "NA2XY"
-
-            # Name
-            if phase_count == 3:
-                name = f"{material} kabel {cable_type} 3x{phase_size}+{neutral_size}"
-            else:
-                name = f"{material} kabel {cable_type} 1x{phase_size}+{neutral_size}"
-
-            # Show preview and confirm
-            details = f"Kabel ölçüsü: {phase_size} mm² (faza) + {neutral_size} mm² (neytral)\nParalel: {n_parallel}\nGərginlik düşümü: {v_drop:.2f} V ({drop_percent:.2f}%)\nAdı: {name}\nMiqdar: {distance} m\nHesab üçün: {kva}kVA, {pf}pf, {voltage}V, {max_drop_percent}% düşmə limiti"
-            reply = QMessageBox.question(self, "Kabel Hesablandı", details + "\n\nBOQ-ya əlavə etmək istəyirsiniz?", 
-                                       QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-
-            if reply == QMessageBox.StandardButton.Yes:
-                existing_item = self._find_boq_item_by_name(name)
-                if existing_item:
-                    existing_item['quantity'] = existing_item.get('quantity', 0) + distance
-                    existing_item['total'] = existing_item.get('quantity', 0) * existing_item.get('unit_price_azn', 0)
-                else:
-                    data = {
-                        'product_id': None,
-                        'name': name,
-                        'quantity': distance,
-                        'unit': "m",
-                        'unit_price': 0.0,
-                        'unit_price_azn': 0.0,
-                        'total': 0.0,
-                        'currency': "AZN",
-                        'margin_percent': 0.0,
-                        'quantity_round': False,
-                        'price_round': False,
-                        'is_custom': True,
-                        'category': "Elektrik;Kabel",
-                        'source': "",
-                        'note': f"Calculated for {kva}kVA, {pf}pf, {voltage}V, {distance}m, {max_drop_percent}% drop limit, {n_parallel} parallel"
-                    }
-                    data['id'] = self.next_id
-                    self.next_id += 1
-                    self.boq_items.append(data)
-
-                self.refresh_table()
+                data = {
+                    'product_id': None,
+                    'name': name,
+                    'quantity': distance,
+                    'unit': "m",
+                    'unit_price': 0.0,
+                    'unit_price_azn': 0.0,
+                    'total': 0.0,
+                    'currency': "AZN",
+                    'margin_percent': 0.0,
+                    'quantity_round': False,
+                    'price_round': False,
+                    'is_custom': True,
+                    'category': "Elektrik;Kabel",
+                    'source': "",
+                    'note': f"Calculated for {kva}kVA, {pf}pf, {voltage}V, {distance}m, {max_drop_percent}% drop limit, {n_parallel} parallel"
+                }
+                data['id'] = self.next_id
+                self.next_id += 1
+                self.boq_items.append(data)
                 QMessageBox.information(self, "Uğur", "Kabel BOQ-ya əlavə edildi.")
         else:
             QMessageBox.warning(self, "Xəta", "Uyğun kabel ölçüsü tapılmadı.")
