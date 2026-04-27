@@ -759,13 +759,13 @@ class SmetaWindow(QMainWindow):
         if reply == QMessageBox.StandardButton.Yes:
             existing_item = self._find_boq_item_by_name(name)
             if existing_item:
-                existing_item['quantity'] = existing_item.get('quantity', 0) + distance
+                existing_item['quantity'] = existing_item.get('quantity', 0) + (distance * n_parallel)
                 existing_item['total'] = existing_item.get('quantity', 0) * existing_item.get('unit_price_azn', 0)
             else:
                 data = {
                     'product_id': None,
                     'name': name,
-                    'quantity': distance,
+                    'quantity': distance * n_parallel,
                     'unit': "m",
                     'unit_price': 0.0,
                     'unit_price_azn': 0.0,
@@ -782,9 +782,9 @@ class SmetaWindow(QMainWindow):
                 data['id'] = self.next_id
                 self.next_id += 1
                 self.boq_items.append(data)
-                QMessageBox.information(self, "Uğur", "Kabel BOQ-ya əlavə edildi.")
-        else:
-            QMessageBox.warning(self, "Xəta", "Uyğun kabel ölçüsü tapılmadı.")
+
+            self.refresh_table()
+            QMessageBox.information(self, "Uğur", "Kabel BOQ-ya əlavə edildi.")
 
     def _calculate_cable_size(self, current, voltage, distance, max_drop_percent, material, insulation, installation):
         """Calculate minimum cable size based on IEC standards."""
