@@ -205,7 +205,7 @@ class MainWindow(QMainWindow):
         
         # Connect resize signal
         header.sectionResized.connect(self.on_column_resized)
-        self.table.setColumnHidden(0, True)
+        self._apply_id_column_visibility()
 
         # Connect double-click to quick add to Smeta
         self.table.doubleClicked.connect(self.quick_add_to_boq)
@@ -516,7 +516,15 @@ class MainWindow(QMainWindow):
 
     def toggle_id_column(self):
         """Show or hide the ID column."""
+        self._apply_id_column_visibility()
+
+    def _apply_id_column_visibility(self):
+        """Apply ID column visibility and force QTableView to recalculate layout."""
         self.table.setColumnHidden(0, not self.show_id_checkbox.isChecked())
+        self.table.horizontalHeader().updateGeometries()
+        self.table.updateGeometries()
+        self.table.doItemsLayout()
+        self.table.viewport().update()
 
     def on_column_resized(self, logicalIndex, oldSize, newSize):
         """Save column width preferences, ensuring minimum size."""
@@ -533,6 +541,8 @@ class MainWindow(QMainWindow):
     def populate_table(self, products):
         """Populate table with product data"""
         self.table_model.set_products(products)
+        self._apply_id_column_visibility()
+        QTimer.singleShot(0, self._apply_id_column_visibility)
         self._refresh_filter_state()
 
     def add_product(self):
