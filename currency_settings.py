@@ -5,6 +5,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 from urllib.request import urlopen
+from urllib.error import HTTPError
 
 
 DEFAULT_API_URL = "https://api.unirateapi.com/api/convert"
@@ -132,8 +133,13 @@ class CurrencySettingsManager:
             joiner = "&" if "?" in api_url else "?"
             url = f"{api_url}{joiner}{urlencode(params)}"
             print(f"API URL: {url}")  # Debug print
-            with urlopen(url, timeout=10) as response:
-                payload = json.loads(response.read().decode("utf-8"))
+            try:
+                with urlopen(url, timeout=10) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+            except HTTPError as e:
+                print(f"HTTP Error: {e.code} {e.reason}")
+                print(f"Response: {e.read().decode('utf-8')}")
+                raise
 
             if "result" not in payload:
                 raise Exception(f"Unexpected API response: {payload}")
