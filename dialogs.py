@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QScrollArea, QTableWidget, QTableWidgetItem, QHeaderView, QComboBox,
     QDoubleSpinBox, QCheckBox, QRadioButton, QButtonGroup
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, QSettings
 from PyQt6.QtGui import QFont, QColor, QPixmap
 
 from db import DatabaseManager
@@ -1523,6 +1523,15 @@ class ProductSelectionDialog(QDialog):
         self.selected_product = None
         self.skip_all = False
         self.currency_manager = CurrencySettingsManager(self.db)
+        # Column preferences
+        self.settings = QSettings("SmetaPro", "ProductSelectionDialog")
+        self.column_widths = {}
+        self.column_min_widths = {}
+        # Load saved widths
+        for i in range(4):  # 4 columns
+            width = self.settings.value(f"column_width_{i}", type=int)
+            if width:
+                self.column_widths[i] = width
         self.init_ui()
 
     def init_ui(self):
@@ -1557,10 +1566,22 @@ class ProductSelectionDialog(QDialog):
         self.products_table.doubleClicked.connect(self.accept)
 
         header = self.products_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        # Set interactive resizing
+        for i in range(self.products_table.columnCount()):
+            header.setSectionResizeMode(i, QHeaderView.ResizeMode.Interactive)
+        
+        # Set default column widths and minimums
+        default_widths = [50, 200, 100, 80]  # ID, Name, Category, Price
+        for i, width in enumerate(default_widths):
+            self.column_min_widths[i] = width
+            header.setMinimumSectionSize(width)
+            if i in self.column_widths:
+                header.resizeSection(i, self.column_widths[i])
+            else:
+                header.resizeSection(i, width)
+        
+        # Connect resize signal
+        header.sectionResized.connect(self.on_column_resized)
 
         layout.addWidget(self.products_table)
 
@@ -1642,6 +1663,18 @@ class ProductSelectionDialog(QDialog):
         """Skip current and all remaining generic selections"""
         self.skip_all = True
         self.reject()
+
+    def on_column_resized(self, logicalIndex, oldSize, newSize):
+        """Save column width preferences, ensuring minimum size."""
+        if logicalIndex in self.column_min_widths:
+            min_width = self.column_min_widths[logicalIndex]
+            if newSize < min_width:
+                # Prevent shrinking below minimum
+                header = self.products_table.horizontalHeader()
+                header.resizeSection(logicalIndex, min_width)
+                return
+        self.column_widths[logicalIndex] = newSize
+        self.settings.setValue(f"column_width_{logicalIndex}", newSize)
 
     def accept(self):
         selected_row = self.products_table.currentRow()

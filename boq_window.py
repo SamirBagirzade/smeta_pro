@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
     QDialog, QSpinBox, QDialogButtonBox, QRadioButton, QButtonGroup,
     QFormLayout, QInputDialog, QComboBox, QDoubleSpinBox
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QSettings
 from PyQt6.QtGui import QFont, QShortcut, QKeySequence
 
 from dialogs import SmetaItemDialog
@@ -36,6 +36,15 @@ class SmetaWindow(QMainWindow):
             6, 10, 16, 20, 25, 32, 40, 50, 63,
             80, 100, 125, 160, 200, 250, 320, 400
         ]
+        # Column width preferences
+        self.settings = QSettings("SmetaPro", "BoqWindow")
+        self.column_widths = {}
+        self.column_min_widths = {}
+        # Load saved widths
+        for i in range(12):  # Assuming 12 columns
+            width = self.settings.value(f"column_width_{i}", type=int)
+            if width:
+                self.column_widths[i] = width
         # AC Cable Wizard state
         self.cable_phase = 3  # 1 or 3
         self.cable_kva = 10.0
@@ -168,18 +177,23 @@ class SmetaWindow(QMainWindow):
         header = self.table.horizontalHeader()
         header.setSortIndicatorShown(True)
         header.sectionClicked.connect(self.sort_by_column)
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # №
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)  # Adı
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # Kateqoriya
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)  # Miqdar
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)  # Ölçü Vahidi
-        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)  # Vahid Qiymət
-        header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)  # Cəmi
-        header.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)  # Marja %
-        header.setSectionResizeMode(8, QHeaderView.ResizeMode.ResizeToContents)  # Yekun
-        header.setSectionResizeMode(9, QHeaderView.ResizeMode.Stretch)  # Mənbə
-        header.setSectionResizeMode(10, QHeaderView.ResizeMode.Stretch)  # Qeyd
-        header.setSectionResizeMode(11, QHeaderView.ResizeMode.ResizeToContents)  # Növ
+        
+        # Set interactive resizing
+        for i in range(self.table.columnCount()):
+            header.setSectionResizeMode(i, QHeaderView.ResizeMode.Interactive)
+        
+        # Set default column widths and minimums
+        default_widths = [50, 200, 100, 80, 80, 100, 100, 80, 100, 150, 200, 80]  # Approximate defaults
+        for i, width in enumerate(default_widths):
+            self.column_min_widths[i] = width
+            header.setMinimumSectionSize(width)
+            if i in self.column_widths:
+                header.resizeSection(i, self.column_widths[i])
+            else:
+                header.resizeSection(i, width)
+        
+        # Connect resize signal
+        header.sectionResized.connect(self.on_column_resized)
 
         main_layout.addWidget(self.table)
         self.table.cellDoubleClicked.connect(self.on_table_double_clicked)
@@ -1045,6 +1059,18 @@ class SmetaWindow(QMainWindow):
         # Update summary
         self.update_summary()
         self._updating_table = False
+
+    def on_column_resized(self, logicalIndex, oldSize, newSize):
+        """Save column width preferences, ensuring minimum size."""
+        if logicalIndex in self.column_min_widths:
+            min_width = self.column_min_widths[logicalIndex]
+            if newSize < min_width:
+                # Prevent shrinking below minimum
+                header = self.table.horizontalHeader()
+                header.resizeSection(logicalIndex, min_width)
+                return
+        self.column_widths[logicalIndex] = newSize
+        self.settings.setValue(f"column_width_{logicalIndex}", newSize)
 
     def on_table_item_changed(self, item):
         """Handle inline edits in the Smeta table."""
