@@ -43,7 +43,7 @@ class SmetaWindow(QMainWindow):
         self.cable_voltage = 380
         self.cable_distance = 100.0
         self.cable_drop = 3.0
-        self.cable_parallel = 1
+        self.cable_max_size = "No limit"
         self.cable_material = "Mis"
         self.cable_insulation = "PVC"
         self.cable_installation = "açıq hava / şaxtada"
@@ -608,11 +608,11 @@ class SmetaWindow(QMainWindow):
         drop_spin.setSuffix(" %")
         form_layout.addRow("İcazə verilən gərginlik düşümü (%):", drop_spin)
 
-        # Parallel cables
-        parallel_spin = QSpinBox()
-        parallel_spin.setRange(1, 10)
-        parallel_spin.setValue(self.cable_parallel)
-        form_layout.addRow("Paralel kabel sayı:", parallel_spin)
+        # Max wire size
+        max_size_combo = QComboBox()
+        max_size_combo.addItems(["No limit", "1.5", "2.5", "4", "6", "10", "16", "25", "35", "50", "70", "95", "120", "150", "185", "240", "300"])
+        max_size_combo.setCurrentText(self.cable_max_size)
+        form_layout.addRow("Maksimum tel ölçüsü (mm²):", max_size_combo)
 
         # Material
         material_combo = QComboBox()
@@ -650,7 +650,7 @@ class SmetaWindow(QMainWindow):
         voltage = voltage_spin.value()
         distance = distance_spin.value()
         max_drop_percent = drop_spin.value()
-        n_parallel = parallel_spin.value()
+        max_size_str = max_size_combo.currentText()
         material = material_combo.currentText()
         insulation = insulation_combo.currentText()
         installation = install_combo.currentText()
@@ -662,24 +662,82 @@ class SmetaWindow(QMainWindow):
         self.cable_voltage = voltage
         self.cable_distance = distance
         self.cable_drop = max_drop_percent
-        self.cable_parallel = n_parallel
+        self.cable_max_size = max_size_str
         self.cable_material = material
         self.cable_insulation = insulation
         self.cable_installation = installation
 
         # Calculate current
         if phase_count == 1:
-            current = kva * 1000 / (voltage * pf)
+            required_current = kva * 1000 / (voltage * pf)
         else:
-            current = kva * 1000 / (voltage * math.sqrt(3) * pf)
+            required_current = kva * 1000 / (voltage * math.sqrt(3) * pf)
 
-        # Effective current per cable
-        effective_current = current / n_parallel
+        # Get ampacity table
+        ampacity_pvc = {
+            1.5: 17, 2.5: 24, 4: 32, 6: 41, 10: 57, 16: 76, 25: 101, 35: 125, 50: 151, 70: 192, 95: 232, 120: 269, 150: 302, 185: 341, 240: 400, 300: 464
+        }
+        ampacity_xlpe = {
+            1.5: 20, 2.5: 27, 4: 36, 6: 46, 10: 64, 16: 85, 25: 114, 35: 141, 50: 170, 70: 216, 95: 261, 120: 293, 150: 339, 185: 382, 240: 445, 300: 517
+        }
+        ampacity = ampacity_xlpe if insulation == "XLPE" else ampacity_pvc
+        sizes = sorted(ampacity.keys())
 
-        # Calculate cable size
-        phase_size, neutral_size = self._calculate_cable_size(effective_current, voltage, distance, max_drop_percent, material, insulation, installation)
+        # Derating
+        derating = {
+            "açıq hava / şaxtada": 1.0,
+            "tavada": 0.9,
+            "yeraltı turbada": 0.8
+        }.get(installation, 1.0)
 
-        if phase_size is not None:
+        # Resistivity
+        rho = 0.0175 if material == "Mis" else 0.028
+
+        # Find ideal size
+        ideal_phase_size = None
+        for size in sizes:
+            max_current = ampacity[size] * derating
+            if required_current > max_current:
+                continue
+            r_per_m = rho / size
+            v_drop = required_current * r_per_m * distance * 2
+            drop_percent = (v_drop / voltage) * 100
+            if drop_percent <= max_drop_percent:
+                ideal_phase_size = size
+                break
+
+        if ideal_phase_size is None:
+            QMessageBox.warning(self, "Xəta", "Uyğun kabel ölçüsü tapılmadı.")
+            return
+
+        # Determine actual size and parallels
+        if max_size_str == "No limit":
+            phase_size = ideal_phase_size
+            n_parallel = 1
+        else:
+            max_size = float(max_size_str)
+            if ideal_phase_size <= max_size:
+                phase_size = ideal_phase_size
+                n_parallel = 1
+            else:
+                phase_size = max_size
+                max_current_per_cable = ampacity[phase_size] * derating
+                n_parallel = math.ceil(required_current / max_current_per_cable)
+
+        # Calculate actual voltage drop with parallels
+        r_per_m = rho / phase_size
+        r_total_per_m = r_per_m / n_parallel
+        v_drop = required_current * r_total_per_m * distance * 2
+        drop_percent = (v_drop / voltage) * 100
+
+        # Check if drop is acceptable
+        if drop_percent > max_drop_percent:
+            QMessageBox.warning(self, "Xəta", f"Gərginlik düşümü {drop_percent:.2f}% icazə veriləndən çoxdur ({max_drop_percent}%).")
+            return
+
+        # Neutral size
+        neutral_target = phase_size / 2
+        neutral_size = min(sizes, key=lambda x: abs(x - neutral_target))
             # Determine cable type
             if material == "Mis":
                 cable_type = "NYY" if insulation == "PVC" else "N2XY"
@@ -693,7 +751,7 @@ class SmetaWindow(QMainWindow):
                 name = f"{material} kabel {cable_type} 1x{phase_size}+{neutral_size}"
 
             # Show preview and confirm
-            details = f"Kabel ölçüsü: {phase_size} mm² (faza) + {neutral_size} mm² (neytral)\nAdı: {name}\nMiqdar: {distance} m\nHesab üçün: {kva}kVA, {pf}pf, {voltage}V, {max_drop_percent}% düşmə, {n_parallel} paralel"
+            details = f"Kabel ölçüsü: {phase_size} mm² (faza) + {neutral_size} mm² (neytral)\nParalel: {n_parallel}\nGərginlik düşümü: {v_drop:.2f} V ({drop_percent:.2f}%)\nAdı: {name}\nMiqdar: {distance} m\nHesab üçün: {kva}kVA, {pf}pf, {voltage}V, {max_drop_percent}% düşmə limiti"
             reply = QMessageBox.question(self, "Kabel Hesablandı", details + "\n\nBOQ-ya əlavə etmək istəyirsiniz?", 
                                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
 
@@ -718,7 +776,7 @@ class SmetaWindow(QMainWindow):
                         'is_custom': True,
                         'category': "Elektrik;Kabel",
                         'source': "",
-                        'note': f"Calculated for {kva}kVA, {pf}pf, {voltage}V, {distance}m, {max_drop_percent}% drop, {n_parallel} parallel"
+                        'note': f"Calculated for {kva}kVA, {pf}pf, {voltage}V, {distance}m, {max_drop_percent}% drop limit, {n_parallel} parallel"
                     }
                     data['id'] = self.next_id
                     self.next_id += 1
