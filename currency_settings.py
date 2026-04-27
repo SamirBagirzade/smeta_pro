@@ -131,15 +131,9 @@ class CurrencySettingsManager:
             }
             joiner = "&" if "?" in api_url else "?"
             url = f"{api_url}{joiner}{urlencode(params)}"
-            print(f"API URL: {url}")  # Debug print
             req = Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"})
-            try:
-                with urlopen(req, timeout=10) as response:
-                    payload = json.loads(response.read().decode("utf-8"))
-            except HTTPError as e:
-                print(f"HTTP Error: {e.code} {e.reason}")
-                print(f"Response: {e.read().decode('utf-8')}")
-                raise
+            with urlopen(req, timeout=10) as response:
+                payload = json.loads(response.read().decode("utf-8"))
 
             if "result" not in payload:
                 raise Exception(f"Unexpected API response: {payload}")
